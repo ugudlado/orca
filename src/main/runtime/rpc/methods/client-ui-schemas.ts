@@ -163,6 +163,12 @@ export const SettingsUpdate = z
     prBotAuthorOverrides: z
       .unknown()
       .transform((value) => normalizePRBotAuthorOverrides(value))
+      .optional(),
+    backlogServerUrl: z.string().optional(),
+    backlogVisibleProjectIds: z.array(z.string()).optional(),
+    backlogAgentId: z.string().nullable().optional(),
+    backlogProjectTokenMeta: z
+      .record(z.string(), z.object({ hashPrefix: z.string() }).strict())
       .optional()
   })
   .strict()

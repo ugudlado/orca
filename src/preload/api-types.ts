@@ -148,6 +148,14 @@ import type {
   JiraTransition,
   JiraUser,
   JiraViewer,
+  BacklogConnectArgs,
+  BacklogConnectResult,
+  BacklogConnectionStatus,
+  BacklogMutationResult,
+  BacklogProject,
+  BacklogTask,
+  BacklogTaskFilter,
+  BacklogTaskUpdate,
   LinearViewer,
   LinearCollectionResult,
   LinearConnectionStatus,
@@ -981,6 +989,7 @@ export type PreloadApi = {
   platform: {
     get: () => {
       platform: NodeJS.Platform
+      hostname: string
       osRelease: string
       displayServer: 'wayland' | 'x11' | null
     }
@@ -2062,6 +2071,32 @@ export type PreloadApi = {
       projectKey: string
       siteId?: string
     }) => Promise<JiraProjectStatusOrder>
+  }
+  backlog: {
+    status: () => Promise<BacklogConnectionStatus>
+    connect: (args: BacklogConnectArgs) => Promise<BacklogConnectResult>
+    disconnect: () => Promise<void>
+    listProjects: () => Promise<BacklogProject[]>
+    listTasks: (args: { projectId: string; filter?: BacklogTaskFilter }) => Promise<BacklogTask[]>
+    getTask: (args: { projectId: string; taskId: string }) => Promise<BacklogTask | null>
+    updateTask: (args: {
+      projectId: string
+      taskId: string
+      updates: BacklogTaskUpdate
+    }) => Promise<BacklogMutationResult>
+    ensureProjectAgentToken: (args: {
+      projectId: string
+      agentName: string
+      agentId?: string | null
+    }) => Promise<
+      | { ok: true; agentId: string; hashPrefix: string; token: string }
+      | { ok: false; error: string }
+    >
+    revokeProjectAgentToken: (args: {
+      projectId: string
+      agentId: string
+      hashPrefix: string
+    }) => Promise<{ ok: true } | { ok: false; error: string }>
   }
   starNag: {
     onShow: (

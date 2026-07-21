@@ -1,5 +1,6 @@
 /* eslint-disable max-lines -- Why: preload is the audited renderer/Electron IPC contract; co-locating the surface eases security and type-drift review. */
 import { contextBridge, ipcRenderer, webFrame, webUtils } from 'electron'
+import { hostname } from 'node:os'
 import { electronAPI } from '@electron-toolkit/preload'
 import { preloadE2EConfig } from './e2e-config'
 import { glApi } from './gitlab'
@@ -482,6 +483,7 @@ const api = {
   platform: {
     get: () => ({
       platform: process.platform,
+      hostname: hostname() || 'local',
       osRelease:
         (process as NodeJS.Process & { getSystemVersion?: () => string }).getSystemVersion?.() ??
         '',
@@ -1741,6 +1743,51 @@ const api = {
       projectKey: string
       siteId?: string
     }): Promise<JiraProjectStatusOrder> => ipcRenderer.invoke('jira:getProjectStatusOrder', args)
+  },
+
+  backlog: {
+    status: (): Promise<unknown> => ipcRenderer.invoke('backlog:status'),
+
+    connect: (args: {
+      serverUrl: string
+      token: string
+    }): Promise<{ ok: true; viewer: unknown; serverUrl: string } | { ok: false; error: string }> =>
+      ipcRenderer.invoke('backlog:connect', args),
+
+    disconnect: (): Promise<void> => ipcRenderer.invoke('backlog:disconnect'),
+
+    listProjects: (): Promise<unknown[]> => ipcRenderer.invoke('backlog:listProjects'),
+
+    listTasks: (args: {
+      projectId: string
+      filter?: { status?: string; assignee?: string }
+    }): Promise<unknown[]> => ipcRenderer.invoke('backlog:listTasks', args),
+
+    getTask: (args: { projectId: string; taskId: string }): Promise<unknown> =>
+      ipcRenderer.invoke('backlog:getTask', args),
+
+    updateTask: (args: {
+      projectId: string
+      taskId: string
+      updates: unknown
+    }): Promise<{ ok: true } | { ok: false; error: string }> =>
+      ipcRenderer.invoke('backlog:updateTask', args),
+
+    ensureProjectAgentToken: (args: {
+      projectId: string
+      agentName: string
+      agentId?: string | null
+    }): Promise<
+      | { ok: true; agentId: string; hashPrefix: string; token: string }
+      | { ok: false; error: string }
+    > => ipcRenderer.invoke('backlog:ensureProjectAgentToken', args),
+
+    revokeProjectAgentToken: (args: {
+      projectId: string
+      agentId: string
+      hashPrefix: string
+    }): Promise<{ ok: true } | { ok: false; error: string }> =>
+      ipcRenderer.invoke('backlog:revokeProjectAgentToken', args)
   },
 
   starNag: {
