@@ -5,9 +5,17 @@ import type {
   LinearCollectionResult,
   LinearIssue
 } from '../types'
+import type { BacklogTask } from '../backlog-types'
 import { isClipboardTextByteLengthOverLimit } from '../clipboard-text'
 
-export type SmartNameMode = 'smart' | 'github' | 'gitlab' | 'branches' | 'linear' | 'text'
+export type SmartNameMode =
+  | 'smart'
+  | 'github'
+  | 'gitlab'
+  | 'branches'
+  | 'linear'
+  | 'backlog'
+  | 'text'
 
 export const SMART_WORKSPACE_SOURCE_QUERY_MAX_BYTES = 2048
 
@@ -18,6 +26,7 @@ export type SmartWorkspaceSourceRow =
   | { kind: 'gitlab'; value: string; item: GitLabWorkItem }
   | { kind: 'branch'; value: string; refName: string; localBranchName: string }
   | { kind: 'linear'; value: string; issue: LinearIssue }
+  | { kind: 'backlog'; value: string; task: BacklogTask }
 
 type LinearIssueSourceInput = LinearIssue[] | LinearCollectionResult<LinearIssue> | null | undefined
 
@@ -27,6 +36,7 @@ const EMPTY_HINT_BY_MODE: Record<SmartNameMode, string> = {
   gitlab: 'Start typing to search GitLab MRs and issues.',
   branches: 'No matching branches.',
   linear: 'Start typing to search Linear issues.',
+  backlog: 'Start typing to search Backlog tasks.',
   text: ''
 }
 
@@ -110,6 +120,8 @@ export function buildSmartWorkspaceSourceRows({
   gitlabItems,
   linearAvailable,
   linearIssues,
+  backlogAvailable,
+  backlogTasks,
   mode,
   resultLimit,
   value
@@ -120,6 +132,8 @@ export function buildSmartWorkspaceSourceRows({
   gitlabItems: GitLabWorkItem[]
   linearAvailable: boolean
   linearIssues: LinearIssueSourceInput
+  backlogAvailable: boolean
+  backlogTasks: BacklogTask[]
   mode: SmartNameMode
   resultLimit: number
   value: string
@@ -183,6 +197,15 @@ export function buildSmartWorkspaceSourceRows({
         kind: 'linear' as const,
         value: `linear-${issue.id}`,
         issue
+      }))
+    )
+  }
+  if (backlogAvailable && (mode === 'smart' || mode === 'backlog')) {
+    nextRows.push(
+      ...backlogTasks.map((task) => ({
+        kind: 'backlog' as const,
+        value: `backlog-${task.projectId}-${task.id}`,
+        task
       }))
     )
   }

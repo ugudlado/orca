@@ -30,6 +30,18 @@ export type LinearWorkspaceSource = WorkspaceSourceLinkedItem & {
   type: 'issue'
 }
 
+export type JiraWorkspaceSource = WorkspaceSourceLinkedItem & {
+  provider: 'jira'
+  type: 'issue'
+}
+
+export type BacklogWorkspaceSource = WorkspaceSourceLinkedItem & {
+  provider: 'backlog'
+  type: 'issue'
+  backlogTaskId: string
+  backlogProjectId: string
+}
+
 export type WorkspaceSourceItemLike = Omit<WorkspaceSourceLinkedItem, 'provider'> & {
   provider?: WorkspaceSourceProvider
 }
@@ -42,6 +54,7 @@ export type WorkspaceSourceSelectionKind =
   | 'branch'
   | 'linear'
   | 'jira'
+  | 'backlog'
 
 export type WorkspaceSourceSelection = {
   kind: WorkspaceSourceSelectionKind
@@ -74,6 +87,9 @@ function isJiraIssueUrl(url: string): boolean {
 export function getWorkspaceSourceProvider(item: WorkspaceSourceItemLike): WorkspaceSourceProvider {
   if (item.provider) {
     return item.provider
+  }
+  if (item.backlogTaskId && item.backlogProjectId) {
+    return 'backlog'
   }
   if (item.linearIdentifier) {
     return 'linear'
@@ -137,6 +153,23 @@ export function buildLinearWorkspaceSource(
   }
 }
 
+export function buildBacklogWorkspaceSource(task: {
+  id: string
+  projectId: string
+  title: string
+  url: string
+}): BacklogWorkspaceSource {
+  return {
+    provider: 'backlog',
+    type: 'issue',
+    number: 0,
+    title: task.title,
+    url: task.url,
+    backlogTaskId: task.id,
+    backlogProjectId: task.projectId
+  }
+}
+
 export function shouldApplyWorkspaceSourceAutoName(args: {
   currentName: string
   lastAutoName: string
@@ -178,17 +211,22 @@ export function buildWorkspaceSourceSelection(args: {
       ? 'linear'
       : provider === 'jira'
         ? 'jira'
-        : provider === 'gitlab'
-          ? linkedWorkItem.type === 'mr'
-            ? 'gitlab-mr'
-            : 'gitlab-issue'
-          : linkedWorkItem.type === 'pr'
-            ? 'github-pr'
-            : 'github-issue'
+        : provider === 'backlog'
+          ? 'backlog'
+          : provider === 'gitlab'
+            ? linkedWorkItem.type === 'mr'
+              ? 'gitlab-mr'
+              : 'gitlab-issue'
+            : linkedWorkItem.type === 'pr'
+              ? 'github-pr'
+              : 'github-issue'
   return {
     kind,
     label:
-      provider === 'linear' || provider === 'jira' || linkedWorkItem.number === 0
+      provider === 'linear' ||
+      provider === 'jira' ||
+      provider === 'backlog' ||
+      linkedWorkItem.number === 0
         ? linkedWorkItem.title
         : `#${linkedWorkItem.number} ${linkedWorkItem.title}`,
     url: linkedWorkItem.url
@@ -202,5 +240,5 @@ export function shouldPreserveWorkspaceSourceOnRepoChange(
     return false
   }
   const provider = getWorkspaceSourceProvider(item)
-  return provider === 'linear' || provider === 'jira'
+  return provider === 'linear' || provider === 'jira' || provider === 'backlog'
 }

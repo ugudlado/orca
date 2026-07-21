@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildBacklogWorkspaceSource,
   buildLinearWorkspaceSource,
   buildWorkspaceSourceSelection,
   getWorkspaceSourceName,
@@ -17,6 +18,13 @@ describe('workspace source policy', () => {
     branchName: '  team/eng-42-ship-mobile-parity  '
   })
 
+  const backlog = buildBacklogWorkspaceSource({
+    id: 'BKG-9',
+    projectId: '1',
+    title: 'Wire backlog provider',
+    url: 'http://localhost:6420'
+  })
+
   it('builds one Linear identity for desktop and mobile create flows', () => {
     expect(linear).toMatchObject({
       provider: 'linear',
@@ -30,6 +38,21 @@ describe('workspace source policy', () => {
       seedName: 'eng-42-ship-mobile-parity',
       displayName: 'ENG-42 Ship mobile parity'
     })
+  })
+
+  it('builds a Backlog source with project+task identity', () => {
+    expect(backlog).toMatchObject({
+      provider: 'backlog',
+      backlogTaskId: 'BKG-9',
+      backlogProjectId: '1',
+      number: 0
+    })
+    expect(getWorkspaceSourceProvider(backlog)).toBe('backlog')
+    expect(buildWorkspaceSourceSelection({ linkedWorkItem: backlog })).toMatchObject({
+      kind: 'backlog',
+      label: 'Wire backlog provider'
+    })
+    expect(shouldPreserveWorkspaceSourceOnRepoChange(backlog)).toBe(true)
   })
 
   it('preserves global work-item sources across repo changes', () => {
