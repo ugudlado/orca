@@ -16,6 +16,8 @@ export type LaunchableWorkItem = {
   linearIdentifier?: string
   linearWorkspaceId?: string
   linearOrganizationUrlKey?: string
+  backlogTaskId?: string
+  backlogProjectId?: string
   linkedContext?: LinkedWorkItemContext
 }
 

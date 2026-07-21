@@ -1,4 +1,4 @@
-import { Check, Github, Gitlab } from 'lucide-react'
+import { Check, Github, Gitlab, ListTodo } from 'lucide-react'
 import type { GlobalSettings, TaskProvider } from '../../../../shared/types'
 import {
   TASK_PROVIDERS,
@@ -75,6 +75,19 @@ const TASK_PROVIDER_OPTIONS: readonly {
       )
     },
     Icon: ({ className }) => <JiraIcon className={className} />
+  },
+  {
+    id: 'backlog',
+    get label() {
+      return translate('auto.components.settings.TasksPane.backlog_label', 'Backlog')
+    },
+    get description() {
+      return translate(
+        'auto.components.settings.TasksPane.backlog_description',
+        'Show Backlog in the Tasks source picker and sidebar shortcuts.'
+      )
+    },
+    Icon: ({ className }) => <ListTodo className={className} strokeWidth={1.75} />
   }
 ]
 

@@ -83,6 +83,8 @@ export type WorktreeCreationRequest = {
   pendingFirstAgentMessageRename: boolean
   /** Post-create note persisted as the worktree comment. */
   note: string
+  /** After a successful Backlog-linked create, set status/assignee (non-blocking). */
+  backlogStartWork?: { projectId: string; taskId: string }
   /** Renderer-side launch plan used to seed the first terminal when the backend
    *  did not already spawn it. Null for blank-shell creates. */
   startupPlan: AgentStartupPlan | null

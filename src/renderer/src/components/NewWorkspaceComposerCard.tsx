@@ -41,6 +41,7 @@ import type {
   GitHubWorkItem,
   GitLabWorkItem,
   LinearIssue,
+  BacklogTask,
   SetupAgentStartupPolicy,
   OrcaHooks,
   SparsePreset,
@@ -109,6 +110,7 @@ type NewWorkspaceComposerCardProps = {
   onSmartBranchSelect: (refName: string, localBranchName: string) => void
   onSmartNameModeChange?: (mode: SmartNameMode) => void
   onSmartLinearIssueSelect: (issue: LinearIssue) => void
+  onSmartBacklogTaskSelect?: (task: BacklogTask) => void
   smartNameSelection: SmartWorkspaceNameSelection | null
   onClearSmartNameSelection: () => void
   /** True when an existing local branch is selected and can be reused. */
@@ -644,6 +646,7 @@ export default function NewWorkspaceComposerCard({
   onSmartBranchSelect,
   onSmartNameModeChange,
   onSmartLinearIssueSelect,
+  onSmartBacklogTaskSelect,
   smartNameSelection,
   onClearSmartNameSelection,
   canReuseSelectedBranch,
@@ -1009,6 +1012,7 @@ export default function NewWorkspaceComposerCard({
             onGitLabItemSelect={onSmartGitLabItemSelect}
             onBranchSelect={onSmartBranchSelect}
             onLinearIssueSelect={onSmartLinearIssueSelect}
+            onBacklogTaskSelect={onSmartBacklogTaskSelect}
             selectedSource={smartNameSelection}
             onClearSelectedSource={onClearSmartNameSelection}
             githubSourceContext={smartNameGitHubSourceContext}

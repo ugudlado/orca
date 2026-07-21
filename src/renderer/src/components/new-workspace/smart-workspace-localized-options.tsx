@@ -1,5 +1,5 @@
 import type React from 'react'
-import { CaseSensitive, GitBranch, Github, Gitlab, Sparkles } from 'lucide-react'
+import { CaseSensitive, GitBranch, Github, Gitlab, ListTodo, Sparkles } from 'lucide-react'
 
 import { translate } from '@/i18n/i18n'
 import type { SmartNameMode } from './smart-workspace-source-results'
@@ -63,6 +63,11 @@ export function getSmartWorkspaceNameModes(): SmartWorkspaceNameModeOption[] {
         'Linear'
       ),
       Icon: LinearModeIcon
+    },
+    {
+      id: 'backlog',
+      label: translate('auto.components.TaskPage.backlog_source_label', 'Backlog'),
+      Icon: ({ className }) => <ListTodo className={className} strokeWidth={1.75} />
     },
     {
       id: 'gitlab',

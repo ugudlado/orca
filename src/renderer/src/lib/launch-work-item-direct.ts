@@ -28,6 +28,7 @@ import {
   resolveDirectSetupDecision
 } from '@/lib/launch-work-item-direct-preflight'
 import type { LaunchWorkItemDirectArgs } from '@/lib/launch-work-item-direct-types'
+import { resolveBacklogWorkItemLaunchEnv } from '@/lib/backlog-launch-env'
 import { resolveSourceControlLaunchPlatform } from '@/lib/source-control-launch-platform'
 import { getSettingsForRepoRuntimeOwner } from '@/lib/repo-runtime-owner'
 import {
@@ -159,6 +160,18 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
   let draftLaunchedNatively = false
   const draftContent = await getDirectWorkItemDraftContent(item, repoConnectionId)
   let startupPlanFailed = false
+  let backlogLaunchEnv: Record<string, string> | null = null
+  if (item.backlogTaskId && item.backlogProjectId) {
+    backlogLaunchEnv = await resolveBacklogWorkItemLaunchEnv({
+      backlogProjectId: item.backlogProjectId,
+      backlogTaskId: item.backlogTaskId,
+      repoConnectionId
+    })
+    if (!backlogLaunchEnv) {
+      openModalFallback()
+      return false
+    }
+  }
   try {
     const result = await store.createWorktree(
       repoId,
@@ -278,7 +291,8 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
         launchPlatform,
         // Why: SSH hosts run the plain `orca` shim, so the Linux-only `orca-ide`
         // rename must not be applied for remote launches.
-        isRemote: typeof launchConnectionId === 'string'
+        isRemote: typeof launchConnectionId === 'string',
+        ...(backlogLaunchEnv ? { extraAgentEnv: backlogLaunchEnv } : {})
       }))
 
     const activation = activateAndRevealWorktree(worktreeId, {

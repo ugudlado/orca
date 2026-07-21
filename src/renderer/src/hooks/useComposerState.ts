@@ -26,6 +26,8 @@ import {
   resolveTuiAgentLaunchArgs,
   resolveTuiAgentLaunchEnv
 } from '../../../shared/tui-agent-launch-defaults'
+import { resolveBacklogWorkItemLaunchEnv } from '@/lib/backlog-launch-env'
+import { buildBacklogStartWorkTaskUpdate } from '../../../shared/backlog-start-work-update'
 import { tuiAgentToAgentKind } from '@/lib/telemetry'
 import { isGitRepoKind } from '../../../shared/repo-kind'
 import { callRuntimeRpc, getActiveRuntimeTarget } from '@/runtime/runtime-rpc-client'
@@ -40,6 +42,7 @@ import type {
   GitPushTarget,
   GitLabWorkItem,
   LinearIssue,
+  BacklogTask,
   OrcaHooks,
   RepoHookSettings,
   SetupAgentStartupPolicy,
@@ -149,6 +152,8 @@ import type { SmartNameMode } from '@/components/new-workspace/smart-workspace-s
 import { getForkPushWarning } from './fork-push-warning'
 import {
   buildWorkspaceSourceSelection,
+  buildBacklogWorkspaceSource,
+  getWorkspaceSourceName,
   shouldApplyWorkspaceSourceAutoName
 } from '../../../shared/new-workspace/workspace-source'
 import { CONTEXTUAL_TOUR_ENABLE_AUTO_WORKSPACE_NAME_EVENT } from '@/components/contextual-tours/contextual-tour-composer-events'
@@ -258,6 +263,7 @@ export type ComposerCardProps = {
   onSmartBranchSelect: (refName: string, localBranchName: string) => void
   onSmartNameModeChange?: (mode: SmartNameMode) => void
   onSmartLinearIssueSelect: (issue: LinearIssue) => void
+  onSmartBacklogTaskSelect?: (task: BacklogTask) => void
   smartNameGitHubSourceContext?: TaskSourceContext | null
   /** GitLab parallel of onBaseBranchPrSelect. */
   onBaseBranchMrSelect?: (
@@ -3078,6 +3084,53 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
     [isProjectGroupTarget, name]
   )
 
+  const handleSmartBacklogTaskSelect = useCallback(
+    (task: BacklogTask): void => {
+      const linkedItem = buildBacklogWorkspaceSource(task)
+      if (isProjectGroupTarget) {
+        setLinkedIssue('')
+        setLinkedPR(null)
+        setLinkedGitLabIssue(null)
+        setLinkedGitLabMR(null)
+        setLinkedWorkItem(linkedItem)
+        const suggestedName =
+          getLinkedItemDisplayName(linkedItem) ?? getWorkspaceSourceName(linkedItem).seedName
+        if (
+          shouldApplyWorkspaceSourceAutoName({
+            currentName: name,
+            lastAutoName: lastAutoNameRef.current
+          }) ||
+          name.trim().toLowerCase() === task.id.toLowerCase()
+        ) {
+          setName(suggestedName)
+          lastAutoNameRef.current = suggestedName
+        }
+        return
+      }
+      setLinkedIssue('')
+      setLinkedPR(null)
+      setLinkedGitLabIssue(null)
+      setLinkedGitLabMR(null)
+      setLinkedWorkItem(linkedItem)
+      const suggestedName = getWorkspaceSourceName(linkedItem).seedName
+      if (
+        shouldApplyWorkspaceSourceAutoName({
+          currentName: name,
+          lastAutoName: lastAutoNameRef.current
+        }) ||
+        name.trim().toLowerCase() === task.id.toLowerCase()
+      ) {
+        setName(suggestedName)
+        lastAutoNameRef.current = suggestedName
+      }
+      setBranchNameOverride(undefined)
+      setBranchNameOverridePreservesNameEdits(false)
+      setForkPushWarning(null)
+      branchAutoNameRef.current = ''
+    },
+    [isProjectGroupTarget, name]
+  )
+
   const handleClearSmartNameSelection = useCallback((): void => {
     smartGitHubPrStartPointSelectionRef.current = null
     setLinkedIssue('')
@@ -3426,12 +3479,34 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
         Boolean(tuiAgent) &&
         !effectiveBranchNameOverride &&
         !createDisplayName
+      const baseAgentEnv = resolveTuiAgentLaunchEnv(tuiAgent, settings?.agentDefaultEnv)
+      let composerAgentEnv = baseAgentEnv
+      if (
+        submitLinkedWorkItemProvider === 'backlog' &&
+        submitLinkedWorkItem?.backlogProjectId &&
+        submitLinkedWorkItem?.backlogTaskId
+      ) {
+        const backlogEnv = await resolveBacklogWorkItemLaunchEnv({
+          backlogProjectId: submitLinkedWorkItem.backlogProjectId,
+          backlogTaskId: submitLinkedWorkItem.backlogTaskId,
+          repoConnectionId: selectedRepo?.connectionId?.trim() || null
+        })
+        if (!backlogEnv) {
+          throw new Error(
+            translate(
+              'auto.hooks.useComposerState.backlogLaunchEnvFailed',
+              'Could not prepare Backlog agent credentials for this workspace.'
+            )
+          )
+        }
+        composerAgentEnv = { ...baseAgentEnv, ...backlogEnv }
+      }
       const startupPlan = buildAgentStartupPlan({
         agent: tuiAgent,
         prompt: submitStartupPrompt,
         cmdOverrides: settings?.agentCmdOverrides ?? {},
         agentArgs: resolveTuiAgentLaunchArgs(tuiAgent, settings?.agentDefaultArgs),
-        agentEnv: resolveTuiAgentLaunchEnv(tuiAgent, settings?.agentDefaultEnv),
+        agentEnv: composerAgentEnv,
         sessionOptions: resolveNativeChatSessionOptionDefaults(
           settings?.nativeChatSessionOptions,
           tuiAgent
@@ -3567,6 +3642,27 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
         })
       }
       setSidebarOpen(true)
+      if (
+        submitLinkedWorkItemProvider === 'backlog' &&
+        submitLinkedWorkItem?.backlogProjectId &&
+        submitLinkedWorkItem?.backlogTaskId
+      ) {
+        const updates = buildBacklogStartWorkTaskUpdate(
+          useAppStore.getState().backlogStatus.hostHostname ?? window.api.platform.get().hostname
+        )
+        void useAppStore
+          .getState()
+          .updateBacklogTask(
+            submitLinkedWorkItem.backlogProjectId,
+            submitLinkedWorkItem.backlogTaskId,
+            updates
+          )
+          .then((result) => {
+            if (!result.ok) {
+              toast.error(result.error)
+            }
+          })
+      }
       if (persistDraft) {
         clearNewWorkspaceDraft()
       }
@@ -3840,6 +3936,33 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
         const promptLinkedWorkItem = agent === null ? null : submitLinkedWorkItem
         const { prompt: quickPrompt, draftPrompt: quickDraftPrompt } =
           resolveQuickCreateLinkedWorkItemPrompt(promptLinkedWorkItem, trimmedNote)
+        let quickAgentEnv: Record<string, string> | undefined =
+          agent === null ? undefined : resolveTuiAgentLaunchEnv(agent, settings?.agentDefaultEnv)
+        let backlogStartWork: { projectId: string; taskId: string } | undefined
+        if (
+          submitLinkedWorkItemProvider === 'backlog' &&
+          submitLinkedWorkItem?.backlogProjectId &&
+          submitLinkedWorkItem?.backlogTaskId
+        ) {
+          const backlogEnv = await resolveBacklogWorkItemLaunchEnv({
+            backlogProjectId: submitLinkedWorkItem.backlogProjectId,
+            backlogTaskId: submitLinkedWorkItem.backlogTaskId,
+            repoConnectionId: selectedRepo?.connectionId?.trim() || null
+          })
+          if (!backlogEnv) {
+            throw new Error(
+              translate(
+                'auto.hooks.useComposerState.backlogLaunchEnvFailed',
+                'Could not prepare Backlog agent credentials for this workspace.'
+              )
+            )
+          }
+          quickAgentEnv = { ...quickAgentEnv, ...backlogEnv }
+          backlogStartWork = {
+            projectId: submitLinkedWorkItem.backlogProjectId,
+            taskId: submitLinkedWorkItem.backlogTaskId
+          }
+        }
         const draftLaunchPlan =
           agent === null || !quickDraftPrompt
             ? null
@@ -3848,7 +3971,7 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
                 draft: quickDraftPrompt,
                 cmdOverrides: settings?.agentCmdOverrides ?? {},
                 agentArgs: resolveTuiAgentLaunchArgs(agent, settings?.agentDefaultArgs),
-                agentEnv: resolveTuiAgentLaunchEnv(agent, settings?.agentDefaultEnv),
+                agentEnv: quickAgentEnv,
                 sessionOptions: resolveNativeChatSessionOptionDefaults(
                   settings?.nativeChatSessionOptions,
                   agent
@@ -3880,7 +4003,7 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
             prompt: quickPrompt,
             cmdOverrides: settings?.agentCmdOverrides ?? {},
             agentArgs: resolveTuiAgentLaunchArgs(agent, settings?.agentDefaultArgs),
-            agentEnv: resolveTuiAgentLaunchEnv(agent, settings?.agentDefaultEnv),
+            agentEnv: quickAgentEnv,
             sessionOptions: resolveNativeChatSessionOptionDefaults(
               settings?.nativeChatSessionOptions,
               agent
@@ -4006,6 +4129,7 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
           ...(backendStartup ? { startup: backendStartup } : {}),
           pendingFirstAgentMessageRename,
           note: trimmedNote,
+          ...(backlogStartWork ? { backlogStartWork } : {}),
           startupPlan,
           quickPrompt,
           quickTelemetry,
@@ -4138,6 +4262,7 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
     onSmartBranchSelect: isProjectGroupTarget ? () => {} : handleSmartBranchSelect,
     onSmartNameModeChange: setSmartNameMode,
     onSmartLinearIssueSelect: handleSmartLinearIssueSelect,
+    onSmartBacklogTaskSelect: handleSmartBacklogTaskSelect,
     smartNameGitHubSourceContext: selectedRepoGitHubSourceContext,
     smartNameSelection,
     onClearSmartNameSelection: handleClearSmartNameSelection,
