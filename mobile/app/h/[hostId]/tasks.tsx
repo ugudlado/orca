@@ -33,7 +33,6 @@ import {
   X
 } from 'lucide-react-native'
 import type { RpcClient } from '../../../src/transport/rpc-client'
-import type { RpcSuccess } from '../../../src/transport/types'
 import { useHostClient } from '../../../src/transport/client-context'
 import {
   useLastConnectedAt,
@@ -122,6 +121,65 @@ import {
   extractLinearIssueReadItems,
   type LinearMobileIssue
 } from '../../../src/tasks/linear-mobile-issue-read'
+import { MOBILE_TASK_PROVIDER_PICKER_OPTIONS } from '../../../src/tasks/mobile-task-provider-picker-options'
+import {
+  MOBILE_TASKS_DEFAULT_LINEAR_DISPLAY_PROPERTIES,
+  MOBILE_TASKS_GITHUB_KIND_OPTIONS,
+  MOBILE_TASKS_GITLAB_FILTER_OPTIONS,
+  MOBILE_TASKS_GITLAB_VIEW_OPTIONS,
+  MOBILE_TASKS_ISSUE_PRESETS,
+  MOBILE_TASKS_LINEAR_DISPLAY_OPTIONS,
+  MOBILE_TASKS_LINEAR_FILTER_OPTIONS,
+  MOBILE_TASKS_LINEAR_GROUP_OPTIONS,
+  MOBILE_TASKS_LINEAR_ORDER_OPTIONS,
+  MOBILE_TASKS_LINEAR_VIEW_OPTIONS,
+  MOBILE_TASKS_PR_PRESETS,
+  MOBILE_TASKS_SORT_OPTIONS,
+  type GitHubPreset,
+  type GitHubTaskKind,
+  type GitLabFilter,
+  type GitLabView,
+  type LinearDisplayProperty,
+  type LinearFilter,
+  type LinearGroupBy,
+  type LinearOrderBy,
+  type LinearViewMode,
+  type TaskSort
+} from '../../../src/tasks/mobile-tasks-screen-picker-options'
+import {
+  formatMobileTaskUpdatedAt,
+  getMobileTaskPresetQuery,
+  githubKindFromMobileTaskQuery,
+  isMobileTasksRpcSuccess,
+  mobileTaskTime,
+  normalizeMobileGitHubPreset,
+  normalizeMobileLinearFilter
+} from '../../../src/tasks/mobile-tasks-screen-format'
+import {
+  canCreateWorkspaceFromProjectRow,
+  githubProjectKey,
+  parseGitHubProjectInput,
+  projectRowType,
+  splitRepositorySlug
+} from '../../../src/tasks/mobile-github-project-input'
+import { isTaskProvider } from '../../../src/tasks/mobile-task-providers'
+import { useMobileBacklogTasks } from '../../../src/tasks/use-mobile-backlog-tasks'
+import {
+  fetchMobileBacklogDetailPayload,
+  fetchMobileBacklogTaskListItems
+} from '../../../src/tasks/backlog-mobile-task-fetch'
+import {
+  buildMobileBacklogWorkspaceCreateParams,
+  markMobileBacklogTaskStartedAfterWorkspaceCreate
+} from '../../../src/tasks/backlog-mobile-workspace-create'
+import {
+  MobileBacklogConnectDrawer,
+  MobileBacklogDetailAssigneeMeta,
+  MobileBacklogDisconnectedPrompt,
+  MobileBacklogProjectPickerModal,
+  MobileBacklogProjectSegment
+} from '../../../src/components/MobileBacklogTasksUi'
+import type { BacklogTask } from '../../../src/shared/backlog-types'
 import { MOBILE_TUI_AGENT_AUTO_PICK_ORDER } from '../../../src/tasks/mobile-tui-agents'
 import { resolveComposerBranchSelection } from '../../../src/tasks/mobile-composer-branch-selection'
 import {
@@ -396,18 +454,15 @@ type DetailPayload =
       project?: LinearProject
       children: LinearIssueChild[]
     }
+  | {
+      provider: 'backlog'
+      body: string
+      comments: DetailComment[]
+      labels: string[]
+      assignee?: string
+      status: string
+    }
 
-type GitHubTaskKind = 'issues' | 'prs'
-type GitHubMode = GitHubTaskKind | 'project'
-type GitHubPreset = 'issues' | 'my-issues' | 'prs' | 'my-prs' | 'review'
-type GitLabView = 'project' | 'todos'
-type GitLabFilter = 'opened' | 'merged' | 'closed' | 'all'
-type LinearFilter = 'assigned' | 'created' | 'all' | 'completed'
-type LinearViewMode = 'list' | 'board'
-type LinearGroupBy = 'none' | 'status' | 'assignee' | 'priority' | 'team'
-type LinearOrderBy = 'priority' | 'updated' | 'identifier'
-type LinearDisplayProperty = 'state' | 'priority' | 'assignee' | 'team' | 'labels' | 'updated'
-type TaskSort = 'updated' | 'repository'
 type DetailCommentGroup =
   | { kind: 'standalone'; comment: DetailComment }
   | { kind: 'thread'; threadId: string; root: DetailComment; replies: DetailComment[] }
@@ -428,6 +483,9 @@ type RuntimeTaskSettings = {
   visibleTaskProviders?: TaskProvider[]
   defaultRepoSelection?: string[] | null
   defaultLinearTeamSelection?: string[] | null
+  backlogVisibleProjectIds?: string[]
+  backlogServerUrl?: string
+  backlogAgentId?: string | null
   githubProjects?: GitHubProjectSettings
 }
 
@@ -609,6 +667,15 @@ type TaskItem =
       updatedAt: string
       source: LinearIssue
     }
+  | {
+      key: string
+      provider: 'backlog'
+      title: string
+      subtitle: string
+      status: string
+      updatedAt: string
+      source: BacklogTask
+    }
 
 type ActionableTaskItem = Exclude<TaskItem, { provider: 'gitlabTodo' }>
 type HostedReviewMergeMethod = 'merge' | 'squash' | 'rebase'
@@ -699,63 +766,7 @@ type TaskListEntry =
   | { type: 'section'; key: string; label: string; color: string }
   | { type: 'item'; key: string; item: TaskItem }
 
-const PROVIDER_OPTIONS: PickerOption<TaskProvider>[] = [
-  {
-    value: 'github',
-    label: 'GitHub',
-    subtitle: 'Issues and pull requests',
-    renderIcon: (selected) => (
-      <TaskProviderLogo
-        provider="github"
-        size={16}
-        color={selected ? colors.textPrimary : colors.textSecondary}
-      />
-    )
-  },
-  {
-    value: 'gitlab',
-    label: 'GitLab',
-    subtitle: 'Issues and merge requests',
-    renderIcon: (selected) => (
-      <TaskProviderLogo
-        provider="gitlab"
-        size={16}
-        color={selected ? colors.textPrimary : colors.textSecondary}
-      />
-    )
-  },
-  {
-    value: 'linear',
-    label: 'Linear',
-    subtitle: 'Assigned and team issues',
-    renderIcon: (selected) => (
-      <TaskProviderLogo
-        provider="linear"
-        size={16}
-        color={selected ? colors.textPrimary : colors.textSecondary}
-      />
-    )
-  }
-]
-
-const GITLAB_FILTER_OPTIONS: PickerOption<GitLabFilter>[] = [
-  { value: 'opened', label: 'Open', subtitle: 'Open issues and merge requests' },
-  { value: 'merged', label: 'Merged', subtitle: 'Merged merge requests' },
-  { value: 'closed', label: 'Closed', subtitle: 'Closed issues and merge requests' },
-  { value: 'all', label: 'All', subtitle: 'Any GitLab state' }
-]
-
-const LINEAR_FILTER_OPTIONS: PickerOption<LinearFilter>[] = [
-  { value: 'all', label: 'All', subtitle: 'Open issues across connected workspaces' },
-  { value: 'assigned', label: 'My Issues', subtitle: 'Issues assigned to you' },
-  { value: 'created', label: 'Created', subtitle: 'Issues created by you' },
-  { value: 'completed', label: 'Completed', subtitle: 'Recently completed issues' }
-]
-
-const LINEAR_VIEW_OPTIONS: PickerOption<LinearViewMode>[] = [
-  { value: 'list', label: 'List', subtitle: 'Compact issue rows' },
-  { value: 'board', label: 'Board', subtitle: 'Grouped columns' }
-]
+const DEFAULT_LINEAR_DISPLAY_PROPERTIES = MOBILE_TASKS_DEFAULT_LINEAR_DISPLAY_PROPERTIES
 
 function taskWorkspaceFallback(item: ActionableTaskItem): string {
   if (item.provider === 'github' || item.provider === 'gitlab') {
@@ -781,69 +792,6 @@ const COMMENT_REACTION_EMOJI: Record<
   rocket: 'rocket',
   eyes: 'eyes'
 }
-
-const LINEAR_GROUP_OPTIONS: PickerOption<LinearGroupBy>[] = [
-  { value: 'none', label: 'No grouping' },
-  { value: 'status', label: 'Status' },
-  { value: 'assignee', label: 'Assignee' },
-  { value: 'priority', label: 'Priority' },
-  { value: 'team', label: 'Team' }
-]
-
-const LINEAR_ORDER_OPTIONS: PickerOption<LinearOrderBy>[] = [
-  { value: 'priority', label: 'Priority' },
-  { value: 'updated', label: 'Updated' },
-  { value: 'identifier', label: 'Identifier' }
-]
-
-const LINEAR_DISPLAY_OPTIONS: PickerOption<LinearDisplayProperty>[] = [
-  { value: 'state', label: 'Status' },
-  { value: 'priority', label: 'Priority' },
-  { value: 'assignee', label: 'Assignee' },
-  { value: 'team', label: 'Team' },
-  { value: 'labels', label: 'Labels' },
-  { value: 'updated', label: 'Updated' }
-]
-
-const DEFAULT_LINEAR_DISPLAY_PROPERTIES: LinearDisplayProperty[] = [
-  'state',
-  'priority',
-  'assignee',
-  'team',
-  'labels',
-  'updated'
-]
-
-const GITHUB_KIND_OPTIONS: PickerOption<GitHubMode>[] = [
-  { value: 'issues', label: 'Issues', subtitle: 'GitHub issues' },
-  { value: 'prs', label: 'PRs', subtitle: 'GitHub pull requests' },
-  { value: 'project', label: 'Projects', subtitle: 'GitHub Projects views' }
-]
-
-const ISSUE_PRESETS: PickerOption<GitHubPreset>[] = [
-  { value: 'issues', label: 'Open', subtitle: 'Open GitHub issues' },
-  { value: 'my-issues', label: 'Assigned to me', subtitle: 'Open issues assigned to you' }
-]
-
-const PR_PRESETS: PickerOption<GitHubPreset>[] = [
-  { value: 'prs', label: 'Open', subtitle: 'Open pull requests' },
-  { value: 'my-prs', label: 'Mine', subtitle: 'Pull requests authored by you' },
-  { value: 'review', label: 'Needs review', subtitle: 'Review requests assigned to you' }
-]
-
-const GITLAB_VIEW_OPTIONS: PickerOption<GitLabView>[] = [
-  { value: 'project', label: 'Project MRs', subtitle: 'Merge requests and issues by repository' },
-  { value: 'todos', label: 'My Todos', subtitle: 'Pending GitLab todos' }
-]
-
-const SORT_OPTIONS: PickerOption<TaskSort>[] = [
-  { value: 'updated', label: 'Updated', subtitle: 'Newest activity first' },
-  {
-    value: 'repository',
-    label: 'Repository',
-    subtitle: 'Group by repository, then newest activity'
-  }
-]
 
 type ProjectSortOverride = { fieldId: string; direction: GitHubProjectSortDirection }
 type ProjectListEntry =
@@ -876,142 +824,6 @@ const EMPTY_GITHUB_PROJECT_SETTINGS: GitHubProjectSettings = {
   recent: [],
   lastViewByProject: {},
   activeProject: null
-}
-
-function isSuccess(response: unknown): response is RpcSuccess {
-  return Boolean(response && typeof response === 'object' && (response as RpcSuccess).ok)
-}
-
-function taskTime(value: string): number {
-  const time = Date.parse(value)
-  return Number.isFinite(time) ? time : 0
-}
-
-function formatUpdatedAt(value: string): string {
-  const time = taskTime(value)
-  if (!time) {
-    return ''
-  }
-  const minutes = Math.max(0, Math.floor((Date.now() - time) / 60_000))
-  if (minutes < 60) {
-    return `${minutes}m`
-  }
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) {
-    return `${hours}h`
-  }
-  return `${Math.floor(hours / 24)}d`
-}
-
-function getTaskPresetQuery(preset: GitHubPreset): string {
-  switch (preset) {
-    case 'my-issues':
-      return 'assignee:@me is:issue is:open'
-    case 'prs':
-      return 'is:pr is:open'
-    case 'my-prs':
-      return 'author:@me is:pr is:open'
-    case 'review':
-      return 'review-requested:@me is:pr is:open'
-    case 'issues':
-    default:
-      return 'is:issue is:open'
-  }
-}
-
-function isTaskProvider(value: unknown): value is TaskProvider {
-  return value === 'github' || value === 'gitlab' || value === 'linear'
-}
-
-function normalizeGitHubPreset(value: unknown): GitHubPreset {
-  return value === 'my-issues' ||
-    value === 'prs' ||
-    value === 'my-prs' ||
-    value === 'review' ||
-    value === 'issues'
-    ? value
-    : 'issues'
-}
-
-function normalizeLinearFilter(value: unknown): LinearFilter {
-  return value === 'assigned' || value === 'created' || value === 'completed' || value === 'all'
-    ? value
-    : 'all'
-}
-
-function githubKindFromQuery(query: string, fallbackPreset: GitHubPreset): GitHubTaskKind {
-  if (/\bis:pr\b/i.test(query)) {
-    return 'prs'
-  }
-  if (/\bis:issue\b/i.test(query)) {
-    return 'issues'
-  }
-  return fallbackPreset === 'prs' || fallbackPreset === 'my-prs' || fallbackPreset === 'review'
-    ? 'prs'
-    : 'issues'
-}
-
-function githubProjectKey(project: GitHubProjectRef): string {
-  return `${project.ownerType}:${project.owner}:${project.number}`
-}
-
-function parseProjectInput(
-  input: string
-): { owner: string; number: number; viewNumber?: number } | null {
-  const trimmed = input.trim()
-  if (!trimmed) {
-    return null
-  }
-  const short = /^([A-Za-z0-9][A-Za-z0-9-]*)\/(\d+)$/.exec(trimmed)
-  if (short) {
-    return { owner: short[1]!, number: Number(short[2]) }
-  }
-  try {
-    const url = new URL(trimmed)
-    if (url.hostname !== 'github.com') {
-      return null
-    }
-    const parts = url.pathname.split('/').filter(Boolean)
-    if ((parts[0] === 'orgs' || parts[0] === 'users') && parts[2] === 'projects' && parts[3]) {
-      const number = Number(parts[3])
-      if (!Number.isInteger(number) || number < 1) {
-        return null
-      }
-      const viewNumber =
-        parts[4] === 'views' && parts[5] && Number.isInteger(Number(parts[5]))
-          ? Number(parts[5])
-          : undefined
-      return {
-        owner: parts[1]!,
-        number,
-        ...(viewNumber && viewNumber > 0 ? { viewNumber } : {})
-      }
-    }
-  } catch {
-    return null
-  }
-  return null
-}
-
-function projectRowType(row: GitHubProjectRow): 'issue' | 'pr' | null {
-  if (row.itemType === 'ISSUE') {
-    return 'issue'
-  }
-  if (row.itemType === 'PULL_REQUEST') {
-    return 'pr'
-  }
-  return null
-}
-
-function canCreateWorkspaceFromProjectRow(row: GitHubProjectRow): boolean {
-  // Why: desktop only exposes Project "Start work" for backed issue/PR rows
-  // with enough GitHub identity to build the linked work item.
-  return projectRowType(row) !== null && row.content.number != null && Boolean(row.content.url)
-}
-
-function splitRepositorySlug(slug: string | null): { owner: string; repo: string } | null {
-  const [owner, repo] = slug?.split('/') ?? []
-  return owner && repo ? { owner, repo } : null
 }
 
 const GITHUB_PROJECT_OPTION_COLORS: Record<string, string> = {
@@ -1060,7 +872,7 @@ function projectRowStatusLabel(row: GitHubProjectRow): string {
 function scopeGitHubTaskSearch(query: string, kind: GitHubTaskKind): string {
   const trimmed = query.trim()
   if (!trimmed) {
-    return getTaskPresetQuery(kind === 'prs' ? 'prs' : 'issues')
+    return getMobileTaskPresetQuery(kind === 'prs' ? 'prs' : 'issues')
   }
   if (/\bis:(?:issue|pr)\b/i.test(trimmed)) {
     return trimmed
@@ -1550,13 +1362,13 @@ function issueSourceSlug(source: GitHubOwnerRepo | null | undefined): string {
 
 function compareLinearIssues(a: LinearIssue, b: LinearIssue, orderBy: LinearOrderBy): number {
   if (orderBy === 'updated') {
-    return taskTime(b.updatedAt) - taskTime(a.updatedAt)
+    return mobileTaskTime(b.updatedAt) - mobileTaskTime(a.updatedAt)
   }
   if (orderBy === 'identifier') {
     return a.identifier.localeCompare(b.identifier, undefined, { numeric: true })
   }
   const priorityDelta = getLinearPriorityRank(a.priority) - getLinearPriorityRank(b.priority)
-  return priorityDelta || taskTime(b.updatedAt) - taskTime(a.updatedAt)
+  return priorityDelta || mobileTaskTime(b.updatedAt) - mobileTaskTime(a.updatedAt)
 }
 
 function getLinearIssueGroup(
@@ -1633,7 +1445,7 @@ function linearIssueSecondaryParts(
     parts.push(issue.labels.slice(0, 2).join(', '))
   }
   if (displayProperties.has('updated')) {
-    parts.push(formatUpdatedAt(issue.updatedAt))
+    parts.push(formatMobileTaskUpdatedAt(issue.updatedAt))
   }
   return parts
 }
@@ -1853,6 +1665,9 @@ function taskKindLabel(item: TaskItem): string {
   if (item.provider === 'gitlabTodo') {
     return `${gitLabTodoTargetLabel(item.source)} todo`
   }
+  if (item.provider === 'backlog') {
+    return 'Task'
+  }
   return 'Linear ticket'
 }
 
@@ -1862,6 +1677,9 @@ function taskExternalOpenLabel(item: TaskItem): string {
   }
   if (item.provider === 'gitlab' || item.provider === 'gitlabTodo') {
     return 'Open in GitLab'
+  }
+  if (item.provider === 'backlog') {
+    return 'Open in Backlog'
   }
   return 'Open in Linear'
 }
@@ -2168,6 +1986,13 @@ function taskRepositoryMeta(
       color: repoColor(item.source.projectPath)
     }
   }
+  if (item.provider === 'backlog') {
+    return {
+      key: item.source.projectId,
+      label: item.source.projectId,
+      color: colors.accentBlue
+    }
+  }
   return {
     key: item.source.team.id,
     label: item.source.team.name,
@@ -2176,7 +2001,7 @@ function taskRepositoryMeta(
 }
 
 function compareTasksByUpdated(a: TaskItem, b: TaskItem): number {
-  return taskTime(b.updatedAt) - taskTime(a.updatedAt)
+  return mobileTaskTime(b.updatedAt) - mobileTaskTime(a.updatedAt)
 }
 
 function compareTasksByRepository(
@@ -2262,8 +2087,8 @@ export default function MobileTasksScreen() {
   const [githubRepoSlugCache, setGithubRepoSlugCache] = useState<
     Record<string, GitHubRepoSlugCacheEntry | undefined>
   >({})
-  const [query, setQuery] = useState(getTaskPresetQuery('issues'))
-  const [appliedQuery, setAppliedQuery] = useState(getTaskPresetQuery('issues'))
+  const [query, setQuery] = useState(getMobileTaskPresetQuery('issues'))
+  const [appliedQuery, setAppliedQuery] = useState(getMobileTaskPresetQuery('issues'))
   const [showProviderPicker, setShowProviderPicker] = useState(false)
   const [showGitHubKindPicker, setShowGitHubKindPicker] = useState(false)
   const [showGitHubPresetPicker, setShowGitHubPresetPicker] = useState(false)
@@ -2468,6 +2293,35 @@ export default function MobileTasksScreen() {
     tasksSupportState.kind === 'unsupported' &&
     tasksSupportState.client === client
   const taskUiReady = tasksSupported && taskStateHydrated
+  const {
+    backlogConnected,
+    selectedBacklogProjectId,
+    setSelectedBacklogProjectId,
+    backlogServerUrlDraft,
+    setBacklogServerUrlDraft,
+    backlogTokenDraft,
+    setBacklogTokenDraft,
+    showBacklogConnect,
+    setShowBacklogConnect,
+    showBacklogProjectPicker,
+    setShowBacklogProjectPicker,
+    backlogConnectState,
+    setBacklogConnectState,
+    backlogConnectError,
+    setBacklogConnectError,
+    openBacklogConnect,
+    hydrateFromBootstrap,
+    connectBacklogAccount,
+    backlogProjectLabel,
+    backlogProjectPickerOptions
+  } = useMobileBacklogTasks({
+    client,
+    connState,
+    tasksSupported,
+    taskUiReady,
+    setProvider,
+    setVisibleProviders
+  })
   const hostedRepos = useMemo(() => repos.filter(isHostedTaskRepo), [repos])
   const workspaceRepos = useMemo(() => repos.filter((repo) => repo.kind !== 'folder'), [repos])
   const reposById = useMemo(() => new Map(repos.map((repo) => [repo.id, repo])), [repos])
@@ -2592,7 +2446,7 @@ export default function MobileTasksScreen() {
           { repo: `id:${repo.id}` },
           { timeoutMs: 30_000 }
         )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const result = response.result as GitHubOwnerRepo | null
@@ -2840,7 +2694,7 @@ export default function MobileTasksScreen() {
         alwaysTrust
       })
       const response = await client.sendRequest('ui.set', { trustedOrcaHooks: next })
-      if (!isSuccess(response)) {
+      if (!isMobileTasksRpcSuccess(response)) {
         throw new Error(response.error.message)
       }
       setTrustedOrcaHooks(next)
@@ -2977,7 +2831,7 @@ export default function MobileTasksScreen() {
       if (stale) {
         return
       }
-      if (!isSuccess(statusResponse)) {
+      if (!isMobileTasksRpcSuccess(statusResponse)) {
         throw new Error(statusResponse.error.message)
       }
       const status = statusResponse.result as TaskRuntimeStatus
@@ -3030,23 +2884,29 @@ export default function MobileTasksScreen() {
       }
       setTasksSupportState({ kind: 'supported', client })
       setError('')
-      const [settingsResponse, uiResponse, preflightResponse, linearStatusResponse] =
-        await Promise.all([
-          client.sendRequest('settings.get'),
-          client.sendRequest('ui.get'),
-          client.sendRequest('preflight.check'),
-          client.sendRequest('linear.status')
-        ])
+      const [
+        settingsResponse,
+        uiResponse,
+        preflightResponse,
+        linearStatusResponse,
+        backlogStatusResponse
+      ] = await Promise.all([
+        client.sendRequest('settings.get'),
+        client.sendRequest('ui.get'),
+        client.sendRequest('preflight.check'),
+        client.sendRequest('linear.status'),
+        client.sendRequest('backlog.status')
+      ])
       if (stale) {
         return
       }
 
-      const settings = isSuccess(settingsResponse)
+      const settings = isMobileTasksRpcSuccess(settingsResponse)
         ? (((settingsResponse.result as { settings?: RuntimeTaskSettings }).settings ??
             {}) as RuntimeTaskSettings)
         : {}
       setRuntimeTaskSettings(settings)
-      const uiState = isSuccess(uiResponse)
+      const uiState = isMobileTasksRpcSuccess(uiResponse)
         ? (
             uiResponse.result as {
               ui?: {
@@ -3061,11 +2921,14 @@ export default function MobileTasksScreen() {
       taskResumeRef.current = resume
       setGithubProjectHiddenFieldIdsByView(resume.githubProjectHiddenFieldIdsByView ?? {})
 
-      const preflight = isSuccess(preflightResponse)
+      const preflight = isMobileTasksRpcSuccess(preflightResponse)
         ? (preflightResponse.result as { glab?: { installed?: boolean } })
         : null
-      const linearStatus = isSuccess(linearStatusResponse)
+      const linearStatus = isMobileTasksRpcSuccess(linearStatusResponse)
         ? (linearStatusResponse.result as LinearStatusResponse)
+        : null
+      const backlogStatus = isMobileTasksRpcSuccess(backlogStatusResponse)
+        ? (backlogStatusResponse.result as { connected?: boolean; serverUrl?: string | null })
         : null
       const preferredProviders = normalizeVisibleTaskProviders(settings.visibleTaskProviders)
       const linearIsConnected = linearStatus?.connected === true
@@ -3073,11 +2936,15 @@ export default function MobileTasksScreen() {
         gitlabInstalled: preflight?.glab?.installed === true,
         linearConnected: linearIsConnected
       })
-      const nextVisibleProviders =
-        preferredProviders.includes('linear') && !availableProviders.includes('linear')
-          ? [...availableProviders, 'linear' as const]
-          : availableProviders
+      let nextVisibleProviders = availableProviders
+      if (preferredProviders.includes('linear') && !availableProviders.includes('linear')) {
+        nextVisibleProviders = [...nextVisibleProviders, 'linear']
+      }
+      if (preferredProviders.includes('backlog') && !nextVisibleProviders.includes('backlog')) {
+        nextVisibleProviders = [...nextVisibleProviders, 'backlog']
+      }
       setLinearConnected(linearIsConnected)
+      await hydrateFromBootstrap(settings, backlogStatus, () => stale)
       if (!linearIsConnected) {
         setLinearWorkspaces([])
         setLinearTeams([])
@@ -3093,22 +2960,28 @@ export default function MobileTasksScreen() {
             )
       const preset =
         resume.githubItemsPreset === null
-          ? normalizeGitHubPreset(settings.defaultTaskViewPreset)
-          : normalizeGitHubPreset(resume.githubItemsPreset ?? settings.defaultTaskViewPreset)
-      const defaultPreset = normalizeGitHubPreset(settings.defaultTaskViewPreset)
+          ? normalizeMobileGitHubPreset(settings.defaultTaskViewPreset)
+          : normalizeMobileGitHubPreset(resume.githubItemsPreset ?? settings.defaultTaskViewPreset)
+      const defaultPreset = normalizeMobileGitHubPreset(settings.defaultTaskViewPreset)
       const githubQuery =
         resume.githubItemsPreset === null
           ? (resume.githubItemsQuery ?? '')
-          : getTaskPresetQuery(preset)
-      const nextLinearFilter = normalizeLinearFilter(resume.linearPreset)
+          : getMobileTaskPresetQuery(preset)
+      const nextLinearFilter = normalizeMobileLinearFilter(resume.linearPreset)
       const nextLinearQuery = resume.linearQuery ?? ''
       defaultRepoSelectionRef.current = settings.defaultRepoSelection ?? null
       defaultLinearTeamSelectionRef.current = settings.defaultLinearTeamSelection ?? null
       const nextQuery =
-        nextProvider === 'github' ? githubQuery : nextProvider === 'linear' ? nextLinearQuery : ''
+        nextProvider === 'github'
+          ? githubQuery
+          : nextProvider === 'linear'
+            ? nextLinearQuery
+            : nextProvider === 'backlog'
+              ? ''
+              : ''
       const nextAppliedQuery =
         nextProvider === 'github'
-          ? scopeGitHubTaskSearch(githubQuery, githubKindFromQuery(githubQuery, preset))
+          ? scopeGitHubTaskSearch(githubQuery, githubKindFromMobileTaskQuery(githubQuery, preset))
           : nextQuery
 
       setVisibleProviders(nextVisibleProviders)
@@ -3116,7 +2989,7 @@ export default function MobileTasksScreen() {
       setGithubMode(resume.githubMode === 'project' ? 'project' : 'items')
       setDefaultGitHubPreset(defaultPreset)
       setGithubPreset(preset)
-      setGithubKind(githubKindFromQuery(githubQuery, preset))
+      setGithubKind(githubKindFromMobileTaskQuery(githubQuery, preset))
       setLinearFilter(nextLinearFilter)
       setGithubProjectSettings(settings.githubProjects ?? EMPTY_GITHUB_PROJECT_SETTINGS)
       setQuery(nextQuery)
@@ -3135,7 +3008,7 @@ export default function MobileTasksScreen() {
     return () => {
       stale = true
     }
-  }, [client, connState, requestedTaskSource, resetWorkspaceCreateState])
+  }, [client, connState, requestedTaskSource, resetWorkspaceCreateState, hydrateFromBootstrap])
 
   useEffect(() => {
     if (visibleProviders.includes(provider)) {
@@ -3149,7 +3022,7 @@ export default function MobileTasksScreen() {
       return []
     }
     const response = await client.sendRequest('repo.list')
-    if (!isSuccess(response)) {
+    if (!isMobileTasksRpcSuccess(response)) {
       throw new Error(response.error.message)
     }
     const result = response.result as { repos: RepoSummary[] }
@@ -3176,7 +3049,7 @@ export default function MobileTasksScreen() {
       return
     }
     const statusResponse = await client.sendRequest('linear.status')
-    if (!isSuccess(statusResponse)) {
+    if (!isMobileTasksRpcSuccess(statusResponse)) {
       throw new Error(statusResponse.error.message)
     }
     const status = statusResponse.result as LinearStatusResponse
@@ -3197,7 +3070,7 @@ export default function MobileTasksScreen() {
     const teamsResponse = await client.sendRequest('linear.listTeams', {
       workspaceId: workspaceId ?? undefined
     })
-    if (!isSuccess(teamsResponse)) {
+    if (!isMobileTasksRpcSuccess(teamsResponse)) {
       throw new Error(teamsResponse.error.message)
     }
     const teams = teamsResponse.result as LinearTeam[]
@@ -3244,7 +3117,7 @@ export default function MobileTasksScreen() {
               query: scopeGitHubTaskSearch(appliedQuery, githubKind),
               before
             })
-            if (!isSuccess(response)) {
+            if (!isMobileTasksRpcSuccess(response)) {
               throw new Error(response.error.message)
             }
             const envelope = response.result as {
@@ -3295,7 +3168,7 @@ export default function MobileTasksScreen() {
       return {
         items: results
           .flatMap((result) => result.items)
-          .sort((a, b) => taskTime(b.updatedAt) - taskTime(a.updatedAt))
+          .sort((a, b) => mobileTaskTime(b.updatedAt) - mobileTaskTime(a.updatedAt))
           .slice(0, CROSS_REPO_DISPLAY_LIMIT),
         failedCount: results.filter((result) => result.error).length,
         sourcesByRepoId,
@@ -3321,7 +3194,7 @@ export default function MobileTasksScreen() {
               },
               { timeoutMs: 30_000 }
             )
-            if (!isSuccess(response)) {
+            if (!isMobileTasksRpcSuccess(response)) {
               throw new Error(response.error.message)
             }
             return typeof response.result === 'number' ? response.result : 0
@@ -3371,6 +3244,14 @@ export default function MobileTasksScreen() {
           return
         }
         if (provider === 'linear' && !linearConnected) {
+          setItems([])
+          return
+        }
+        if (provider === 'backlog' && !backlogConnected) {
+          setItems([])
+          return
+        }
+        if (provider === 'backlog' && !selectedBacklogProjectId) {
           setItems([])
           return
         }
@@ -3437,7 +3318,7 @@ export default function MobileTasksScreen() {
             const response = await requestClient.sendRequest('gitlab.todos', {
               repo: `id:${queriedRepos[0]!.id}`
             })
-            if (!isSuccess(response)) {
+            if (!isMobileTasksRpcSuccess(response)) {
               throw new Error(response.error.message)
             }
             if (!isCurrent()) {
@@ -3446,7 +3327,7 @@ export default function MobileTasksScreen() {
             setItems(
               ((response.result as GitLabTodo[]) ?? [])
                 .map(createGitLabTodoTask)
-                .sort((a, b) => taskTime(b.updatedAt) - taskTime(a.updatedAt))
+                .sort((a, b) => mobileTaskTime(b.updatedAt) - mobileTaskTime(a.updatedAt))
             )
             return
           }
@@ -3467,7 +3348,7 @@ export default function MobileTasksScreen() {
                   perPage: GITLAB_PER_PAGE,
                   query: appliedQuery.trim() || undefined
                 })
-                if (!isSuccess(response)) {
+                if (!isMobileTasksRpcSuccess(response)) {
                   throw new Error(response.error.message)
                 }
                 const envelope = response.result as {
@@ -3499,13 +3380,25 @@ export default function MobileTasksScreen() {
           setItems(
             results
               .flatMap((result) => result.items)
-              .sort((a, b) => taskTime(b.updatedAt) - taskTime(a.updatedAt))
+              .sort((a, b) => mobileTaskTime(b.updatedAt) - mobileTaskTime(a.updatedAt))
           )
           if (failedCount > 0) {
             setError(buildPartialRepositoryNotice(failedCount, queriedRepos.length))
           } else {
             setError('')
           }
+        } else if (provider === 'backlog') {
+          const listItems = await fetchMobileBacklogTaskListItems(
+            requestClient,
+            selectedBacklogProjectId!,
+            appliedQuery
+          )
+          if (!isCurrent()) {
+            return
+          }
+          setItems(
+            listItems.sort((a, b) => mobileTaskTime(b.updatedAt) - mobileTaskTime(a.updatedAt))
+          )
         } else {
           const normalizedQuery = appliedQuery.trim()
           const response = normalizedQuery
@@ -3519,7 +3412,7 @@ export default function MobileTasksScreen() {
                 limit: LINEAR_LIMIT,
                 workspaceId: selectedLinearWorkspaceId ?? undefined
               })
-          if (!isSuccess(response)) {
+          if (!isMobileTasksRpcSuccess(response)) {
             throw new Error(response.error.message)
           }
           const issues = extractLinearIssueReadItems(response.result)
@@ -3558,6 +3451,8 @@ export default function MobileTasksScreen() {
       gitlabView,
       githubMode,
       linearConnected,
+      backlogConnected,
+      selectedBacklogProjectId,
       linearFilter,
       linearOrderBy,
       loadRepos,
@@ -3582,7 +3477,7 @@ export default function MobileTasksScreen() {
     setLinearConnectError('')
     try {
       const response = await client.sendRequest('linear.connect', { apiKey })
-      if (!isSuccess(response)) {
+      if (!isMobileTasksRpcSuccess(response)) {
         throw new Error(response.error.message)
       }
       const result = response.result as { ok?: boolean; error?: string }
@@ -3739,7 +3634,7 @@ export default function MobileTasksScreen() {
     setGithubProjectError('')
     setGithubProjectPartialFailures([])
     const response = await client.sendRequest('github.project.listAccessible', {})
-    if (!isSuccess(response)) {
+    if (!isMobileTasksRpcSuccess(response)) {
       throw new Error(response.error.message)
     }
     const result = response.result as
@@ -3766,7 +3661,7 @@ export default function MobileTasksScreen() {
         ownerType: project.ownerType,
         projectNumber: project.number
       })
-      if (!isSuccess(response)) {
+      if (!isMobileTasksRpcSuccess(response)) {
         throw new Error(response.error.message)
       }
       const result = response.result as
@@ -3807,7 +3702,7 @@ export default function MobileTasksScreen() {
           },
           { timeoutMs: 60_000 }
         )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const result = response.result as
@@ -3932,7 +3827,7 @@ export default function MobileTasksScreen() {
       return
     }
     const input = githubProjectPasteInput.trim()
-    if (!parseProjectInput(input)) {
+    if (!parseGitHubProjectInput(input)) {
       setGithubProjectPasteError('Expected a project URL or owner/number.')
       return
     }
@@ -3941,7 +3836,7 @@ export default function MobileTasksScreen() {
     setGithubProjectError('')
     try {
       const response = await client.sendRequest('github.project.resolveRef', { input })
-      if (!isSuccess(response)) {
+      if (!isMobileTasksRpcSuccess(response)) {
         throw new Error(response.error.message)
       }
       const result = response.result as
@@ -4010,7 +3905,7 @@ export default function MobileTasksScreen() {
     const trimmed = appliedQuery.trim()
     persistTaskResumeState({
       githubMode: 'items',
-      githubItemsPreset: trimmed === getTaskPresetQuery(githubPreset) ? githubPreset : null,
+      githubItemsPreset: trimmed === getMobileTaskPresetQuery(githubPreset) ? githubPreset : null,
       githubItemsQuery: trimmed
     })
   }, [appliedQuery, githubMode, githubPreset, persistTaskResumeState, provider, taskUiReady])
@@ -4101,7 +3996,7 @@ export default function MobileTasksScreen() {
         if (stale) {
           return
         }
-        if (isSuccess(response)) {
+        if (isMobileTasksRpcSuccess(response)) {
           const teams = response.result as LinearTeam[]
           setLinearTeams(teams)
           setCreateTeamId((current) => current ?? teams[0]?.id ?? null)
@@ -4142,7 +4037,7 @@ export default function MobileTasksScreen() {
         if (stale) {
           return
         }
-        if (isSuccess(statesResponse)) {
+        if (isMobileTasksRpcSuccess(statesResponse)) {
           setLinearStates(statesResponse.result as LinearState[])
         } else {
           setLinearStates([])
@@ -4203,7 +4098,11 @@ export default function MobileTasksScreen() {
       return
     }
     setItemBodyDraft(
-      detailPayload.provider === 'linear' ? detailPayload.description : detailPayload.body
+      detailPayload.provider === 'linear'
+        ? detailPayload.description
+        : detailPayload.provider === 'backlog'
+          ? detailPayload.body
+          : detailPayload.body
     )
   }, [detailPayload])
 
@@ -4233,7 +4132,7 @@ export default function MobileTasksScreen() {
           if (stale) {
             return
           }
-          if (!isSuccess(response)) {
+          if (!isMobileTasksRpcSuccess(response)) {
             throw new Error(response.error.message)
           }
           setItemAvailableLabels(response.result as string[])
@@ -4267,7 +4166,7 @@ export default function MobileTasksScreen() {
         if (stale) {
           return
         }
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         setItemAssignableUsers(response.result as GitHubAssignableUser[])
@@ -4314,7 +4213,7 @@ export default function MobileTasksScreen() {
           },
           { timeoutMs: 30_000 }
         )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const details = response.result as {
@@ -4375,7 +4274,7 @@ export default function MobileTasksScreen() {
           },
           { timeoutMs: 30_000 }
         )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const details = response.result as {
@@ -4408,6 +4307,18 @@ export default function MobileTasksScreen() {
         return
       }
 
+      if (actionItem.provider === 'backlog') {
+        const payload = await fetchMobileBacklogDetailPayload(
+          client,
+          actionItem.source.projectId,
+          actionItem.source.id
+        )
+        if (!stale) {
+          setDetailPayload(payload)
+        }
+        return
+      }
+
       const [issueResponse, commentsResponse] = await Promise.all([
         client.sendRequest(
           'linear.getIssue',
@@ -4426,11 +4337,11 @@ export default function MobileTasksScreen() {
           { timeoutMs: 30_000 }
         )
       ])
-      if (!isSuccess(issueResponse)) {
+      if (!isMobileTasksRpcSuccess(issueResponse)) {
         throw new Error(issueResponse.error.message)
       }
       const issue = issueResponse.result as LinearIssue | null
-      const comments = isSuccess(commentsResponse)
+      const comments = isMobileTasksRpcSuccess(commentsResponse)
         ? ((commentsResponse.result as DetailComment[]) ?? [])
         : []
       if (!issue) {
@@ -4545,7 +4456,7 @@ export default function MobileTasksScreen() {
         if (stale) {
           return
         }
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const result = response.result as
@@ -4635,7 +4546,7 @@ export default function MobileTasksScreen() {
         if (stale) {
           return
         }
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const result = response.result as
@@ -4689,7 +4600,7 @@ export default function MobileTasksScreen() {
         if (stale) {
           return
         }
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const result = response.result as
@@ -4741,7 +4652,7 @@ export default function MobileTasksScreen() {
         if (stale) {
           return
         }
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const result = response.result as
@@ -4979,7 +4890,7 @@ export default function MobileTasksScreen() {
         if (stale) {
           return
         }
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const presets = (response.result as { presets?: SparsePreset[] }).presets ?? []
@@ -5050,7 +4961,7 @@ export default function MobileTasksScreen() {
         if (stale) {
           return
         }
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const result = response.result as {
@@ -5144,7 +5055,7 @@ export default function MobileTasksScreen() {
         name: workspaceSparseDraftName,
         directories: workspaceSparseDraftParsed.directories
       })
-      if (!isSuccess(response)) {
+      if (!isMobileTasksRpcSuccess(response)) {
         throw new Error(response.error.message)
       }
       const saved = (response.result as { preset?: SparsePreset }).preset
@@ -5192,7 +5103,7 @@ export default function MobileTasksScreen() {
         if (stale) {
           return
         }
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const state = (response.result as { state?: SshConnectionState | null }).state ?? null
@@ -5238,7 +5149,7 @@ export default function MobileTasksScreen() {
         { targetId: workspaceCreateTargetConnectionId },
         { timeoutMs: 120_000 }
       )
-      if (!isSuccess(response)) {
+      if (!isMobileTasksRpcSuccess(response)) {
         throw new Error(response.error.message)
       }
       const state = (response.result as { state?: SshConnectionState | null }).state
@@ -5274,7 +5185,7 @@ export default function MobileTasksScreen() {
         return
       }
       const response = await client.sendRequest('ssh.getState', { targetId: repo.connectionId })
-      if (!isSuccess(response)) {
+      if (!isMobileTasksRpcSuccess(response)) {
         throw new Error(response.error.message)
       }
       const state = (response.result as { state?: SshConnectionState | null }).state ?? null
@@ -5312,7 +5223,7 @@ export default function MobileTasksScreen() {
           return
         }
         setWorkspaceDetectedAgentIds(
-          isSuccess(response) ? new Set(response.result as string[]) : new Set()
+          isMobileTasksRpcSuccess(response) ? new Set(response.result as string[]) : new Set()
         )
       })
       .catch(() => {
@@ -5375,7 +5286,7 @@ export default function MobileTasksScreen() {
         return { kind: 'decision', decision: override ?? 'inherit' }
       }
       const response = await client.sendRequest('repo.hooks', { repo: `id:${repo.id}` })
-      if (!isSuccess(response)) {
+      if (!isMobileTasksRpcSuccess(response)) {
         throw new Error(response.error.message)
       }
       const result = response.result as RepoHooksResponse
@@ -5422,8 +5333,8 @@ export default function MobileTasksScreen() {
         const targetRepo = getWorkspaceTargetRepo(item, repoIdOverride)
         if (!targetRepo) {
           throw new Error(
-            item.provider === 'linear'
-              ? 'Add a Git repository before creating a Linear workspace.'
+            item.provider === 'linear' || item.provider === 'backlog'
+              ? 'Add a Git repository before creating a workspace from this task.'
               : 'Repository not found.'
           )
         }
@@ -5431,7 +5342,7 @@ export default function MobileTasksScreen() {
         let latestRuntimeTaskSettings = runtimeTaskSettings
         try {
           const settingsResponse = await client.sendRequest('settings.get')
-          if (isSuccess(settingsResponse)) {
+          if (isMobileTasksRpcSuccess(settingsResponse)) {
             latestRuntimeTaskSettings = ((
               settingsResponse.result as { settings?: RuntimeTaskSettings }
             ).settings ?? {}) as RuntimeTaskSettings
@@ -5530,7 +5441,7 @@ export default function MobileTasksScreen() {
               },
               { timeoutMs: 30_000 }
             )
-            if (!isSuccess(response)) {
+            if (!isMobileTasksRpcSuccess(response)) {
               throw new Error(response.error.message)
             }
             const result = response.result as
@@ -5574,7 +5485,7 @@ export default function MobileTasksScreen() {
               },
               { timeoutMs: 30_000 }
             )
-            if (!isSuccess(response)) {
+            if (!isMobileTasksRpcSuccess(response)) {
               throw new Error(response.error.message)
             }
             const result = response.result as
@@ -5597,6 +5508,27 @@ export default function MobileTasksScreen() {
             sparseCheckout: sparseCheckoutOverride,
             hostedStartPoint: mrStartPoint
           })
+        } else if (item.provider === 'backlog') {
+          params = await buildMobileBacklogWorkspaceCreateParams({
+            client,
+            source: item.source,
+            targetRepoId: targetRepo.id,
+            setupDecision,
+            agent: selectedAgent,
+            workspaceName: workspaceNameOverride,
+            note: comment,
+            baseBranch: baseBranchOverride,
+            branchNameOverride,
+            sparseCheckout: sparseCheckoutOverride,
+            backlogServerUrl:
+              typeof latestRuntimeTaskSettings?.backlogServerUrl === 'string'
+                ? latestRuntimeTaskSettings.backlogServerUrl
+                : '',
+            backlogAgentId:
+              typeof latestRuntimeTaskSettings?.backlogAgentId === 'string'
+                ? latestRuntimeTaskSettings.backlogAgentId
+                : null
+          })
         } else {
           params = buildTaskWorkspaceCreateParams({
             item,
@@ -5613,12 +5545,19 @@ export default function MobileTasksScreen() {
         const response = await client.sendRequest('worktree.create', params, {
           timeoutMs: WORKTREE_CREATE_TIMEOUT_MS
         })
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const result = response.result as {
           worktree: { id: string; displayName?: string }
           warning?: string
+        }
+        if (item.provider === 'backlog') {
+          await markMobileBacklogTaskStartedAfterWorkspaceCreate({
+            client,
+            projectId: item.source.projectId,
+            taskId: item.source.id
+          })
         }
         setActionItem(null)
         setWorkspaceCreateDraft(null)
@@ -5734,7 +5673,7 @@ export default function MobileTasksScreen() {
           },
           { timeoutMs: 30_000 }
         )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const result = response.result as { ok?: boolean; error?: { message?: string } }
@@ -5815,7 +5754,7 @@ export default function MobileTasksScreen() {
           },
           { timeoutMs: 30_000 }
         )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const result = response.result as
@@ -5866,7 +5805,7 @@ export default function MobileTasksScreen() {
           },
           { timeoutMs: 30_000 }
         )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const result = response.result as {
@@ -5924,7 +5863,7 @@ export default function MobileTasksScreen() {
           },
           { timeoutMs: 30_000 }
         )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const result = response.result as {
@@ -5984,7 +5923,7 @@ export default function MobileTasksScreen() {
           },
           { timeoutMs: 30_000 }
         )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         if (response.result !== true) {
@@ -6056,7 +5995,7 @@ export default function MobileTasksScreen() {
               },
               { timeoutMs: 30_000 }
             )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const result = response.result as {
@@ -6125,7 +6064,7 @@ export default function MobileTasksScreen() {
           },
           { timeoutMs: 30_000 }
         )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const result = response.result as { ok?: boolean; error?: { message?: string } }
@@ -6234,7 +6173,7 @@ export default function MobileTasksScreen() {
               },
           { timeoutMs: 30_000 }
         )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const result = response.result as { ok?: boolean; error?: { message?: string } }
@@ -6299,7 +6238,7 @@ export default function MobileTasksScreen() {
           },
           { timeoutMs: 30_000 }
         )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const result = response.result as { ok?: boolean; error?: { message?: string } }
@@ -6354,7 +6293,7 @@ export default function MobileTasksScreen() {
           },
           { timeoutMs: 30_000 }
         )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const result = response.result as { ok?: boolean; error?: string }
@@ -6425,7 +6364,7 @@ export default function MobileTasksScreen() {
           },
           { timeoutMs: 30_000 }
         )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         if (!Array.isArray(response.result)) {
@@ -6469,7 +6408,7 @@ export default function MobileTasksScreen() {
           },
           { timeoutMs: 60_000 }
         )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const result = response.result as { ok?: boolean; error?: string }
@@ -6510,7 +6449,7 @@ export default function MobileTasksScreen() {
           },
           { timeoutMs: 30_000 }
         )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         if (response.result !== true) {
@@ -6578,7 +6517,7 @@ export default function MobileTasksScreen() {
           },
           { timeoutMs: 30_000 }
         )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         setPrFileContents((current) => ({
@@ -6632,7 +6571,7 @@ export default function MobileTasksScreen() {
           },
           { timeoutMs: 30_000 }
         )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const result = response.result as {
@@ -6699,7 +6638,7 @@ export default function MobileTasksScreen() {
           },
           { timeoutMs: 60_000 }
         )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const result = response.result as { ok?: boolean; error?: string }
@@ -6757,7 +6696,7 @@ export default function MobileTasksScreen() {
                 updates: { state: nextState }
               }
         const response = await client.sendRequest(method, params)
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const result = response.result as { ok?: boolean; error?: string }
@@ -6798,7 +6737,7 @@ export default function MobileTasksScreen() {
                 state: nextState,
                 projectRef: item.source.projectRef
               })
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const result = response.result as { ok?: boolean; error?: string }
@@ -6843,7 +6782,7 @@ export default function MobileTasksScreen() {
           },
           { timeoutMs: 30_000 }
         )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const result = response.result as { ok?: boolean; error?: string }
@@ -6954,7 +6893,7 @@ export default function MobileTasksScreen() {
           },
           { timeoutMs: 30_000 }
         )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const result = response.result as { ok?: boolean; error?: string }
@@ -7037,7 +6976,7 @@ export default function MobileTasksScreen() {
                 }
               }
         const response = await client.sendRequest(method, params, { timeoutMs: 30_000 })
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const result = response.result as { ok?: boolean; error?: string }
@@ -7165,7 +7104,7 @@ export default function MobileTasksScreen() {
                     },
                 { timeoutMs: 30_000 }
               )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const result = response.result as {
@@ -7240,7 +7179,7 @@ export default function MobileTasksScreen() {
           },
           { timeoutMs: 30_000 }
         )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const result = response.result as { ok?: boolean; error?: string }
@@ -7322,7 +7261,7 @@ export default function MobileTasksScreen() {
           },
           { timeoutMs: 30_000 }
         )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         if (!Array.isArray(response.result)) {
@@ -7378,7 +7317,7 @@ export default function MobileTasksScreen() {
           },
           { timeoutMs: 60_000 }
         )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const result = response.result as { ok?: boolean; error?: string }
@@ -7421,7 +7360,7 @@ export default function MobileTasksScreen() {
           },
           { timeoutMs: 30_000 }
         )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         if (response.result !== true) {
@@ -7469,7 +7408,7 @@ export default function MobileTasksScreen() {
           },
           { timeoutMs: 30_000 }
         )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         if (response.result !== true) {
@@ -7535,7 +7474,7 @@ export default function MobileTasksScreen() {
           },
           { timeoutMs: 30_000 }
         )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         setPrFileContents((current) => ({
@@ -7584,7 +7523,7 @@ export default function MobileTasksScreen() {
           },
           { timeoutMs: 30_000 }
         )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const result = response.result as {
@@ -7667,7 +7606,7 @@ export default function MobileTasksScreen() {
               },
               { timeoutMs: 30_000 }
             )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const result = response.result as {
@@ -7748,7 +7687,7 @@ export default function MobileTasksScreen() {
                 },
                 { timeoutMs: 60_000 }
               )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const result = response.result as { ok?: boolean; error?: string }
@@ -7783,7 +7722,7 @@ export default function MobileTasksScreen() {
           workspaceId: item.source.workspaceId,
           updates: { stateId: state.id }
         })
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const nextState = {
@@ -7841,7 +7780,7 @@ export default function MobileTasksScreen() {
           },
           { timeoutMs: 30_000 }
         )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const result = response.result as { ok?: boolean; id?: string; error?: string }
@@ -7882,7 +7821,7 @@ export default function MobileTasksScreen() {
           { id: child.id, workspaceId },
           { timeoutMs: 30_000 }
         )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const issue = response.result as LinearIssue | null
@@ -7922,7 +7861,7 @@ export default function MobileTasksScreen() {
           },
           { timeoutMs: 30_000 }
         )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const result = response.result as {
@@ -7988,7 +7927,7 @@ export default function MobileTasksScreen() {
             body: createBody
           }
         )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const result = response.result as {
@@ -8045,7 +7984,7 @@ export default function MobileTasksScreen() {
           description: createBody.trim() || undefined,
           workspaceId: team.workspaceId
         })
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         const result = response.result as {
@@ -8115,7 +8054,7 @@ export default function MobileTasksScreen() {
           },
           { timeoutMs: 15_000 }
         )
-        if (!isSuccess(response)) {
+        if (!isMobileTasksRpcSuccess(response)) {
           throw new Error(response.error.message)
         }
         setRepos((current) =>
@@ -8315,11 +8254,20 @@ export default function MobileTasksScreen() {
       ? ((selectedCreateTarget as RepoSummary | null)?.displayName ?? 'Select target')
       : ((selectedCreateTarget as LinearTeam | null)?.name ?? 'Select target')
   const providerLabel =
-    provider === 'github' ? 'GitHub' : provider === 'gitlab' ? 'GitLab' : 'Linear'
+    provider === 'github'
+      ? 'GitHub'
+      : provider === 'gitlab'
+        ? 'GitLab'
+        : provider === 'backlog'
+          ? 'Backlog'
+          : 'Linear'
   const showHeaderCreateTask =
     provider === 'linear' || (provider === 'github' && githubMode === 'items')
   const providerOptions = useMemo(
-    () => PROVIDER_OPTIONS.filter((option) => visibleProviders.includes(option.value)),
+    () =>
+      MOBILE_TASK_PROVIDER_PICKER_OPTIONS.filter((option) =>
+        visibleProviders.includes(option.value)
+      ),
     [visibleProviders]
   )
   const selectedCreateRepo =
@@ -8407,7 +8355,8 @@ export default function MobileTasksScreen() {
     }
     return entries
   }, [reposById, sortedItems, taskSort])
-  const sortLabel = SORT_OPTIONS.find((option) => option.value === taskSort)?.label ?? 'Updated'
+  const sortLabel =
+    MOBILE_TASKS_SORT_OPTIONS.find((option) => option.value === taskSort)?.label ?? 'Updated'
   const githubProjectFields = githubProjectTable?.selectedView.fields ?? []
   const githubProjectViewSort = githubProjectTable?.selectedView.sortByFields?.[0] ?? null
   const githubProjectSortField = githubProjectSortOverride
@@ -8457,7 +8406,8 @@ export default function MobileTasksScreen() {
       })),
     [githubProjectViews]
   )
-  const githubPresetOptions = githubKind === 'prs' ? PR_PRESETS : ISSUE_PRESETS
+  const githubPresetOptions =
+    githubKind === 'prs' ? MOBILE_TASKS_PR_PRESETS : MOBILE_TASKS_ISSUE_PRESETS
   const githubPresetPickerOptions = useMemo(
     () =>
       githubPresetOptions.map((option) =>
@@ -8470,15 +8420,20 @@ export default function MobileTasksScreen() {
   const githubPresetLabel =
     githubPresetOptions.find((preset) => preset.value === githubPreset)?.label ?? 'Open'
   const gitlabFilterLabel =
-    GITLAB_FILTER_OPTIONS.find((filter) => filter.value === gitlabFilter)?.label ?? 'Open'
+    MOBILE_TASKS_GITLAB_FILTER_OPTIONS.find((filter) => filter.value === gitlabFilter)?.label ??
+    'Open'
   const linearFilterLabel =
-    LINEAR_FILTER_OPTIONS.find((filter) => filter.value === linearFilter)?.label ?? 'All'
+    MOBILE_TASKS_LINEAR_FILTER_OPTIONS.find((filter) => filter.value === linearFilter)?.label ??
+    'All'
   const linearViewLabel =
-    LINEAR_VIEW_OPTIONS.find((option) => option.value === linearViewMode)?.label ?? 'List'
+    MOBILE_TASKS_LINEAR_VIEW_OPTIONS.find((option) => option.value === linearViewMode)?.label ??
+    'List'
   const linearGroupLabel =
-    LINEAR_GROUP_OPTIONS.find((option) => option.value === linearGroupBy)?.label ?? 'No grouping'
+    MOBILE_TASKS_LINEAR_GROUP_OPTIONS.find((option) => option.value === linearGroupBy)?.label ??
+    'No grouping'
   const linearOrderLabel =
-    LINEAR_ORDER_OPTIONS.find((option) => option.value === linearOrderBy)?.label ?? 'Priority'
+    MOBILE_TASKS_LINEAR_ORDER_OPTIONS.find((option) => option.value === linearOrderBy)?.label ??
+    'Priority'
   const linearWorkspaceLabel =
     selectedLinearWorkspaceId === 'all'
       ? 'All workspaces'
@@ -8710,6 +8665,10 @@ export default function MobileTasksScreen() {
                   setLinearConnectState('idle')
                   setLinearConnectError('')
                   setShowLinearConnect(true)
+                  return
+                }
+                if (provider === 'backlog' && !backlogConnected) {
+                  openBacklogConnect()
                   return
                 }
                 setCreateTitle('')
@@ -9029,7 +8988,17 @@ export default function MobileTasksScreen() {
             </>
           )}
 
-          {provider !== 'linear' && !(provider === 'github' && githubMode === 'project') ? (
+          {provider === 'backlog' && backlogConnected && backlogProjectPickerOptions.length > 0 ? (
+            <MobileBacklogProjectSegment
+              taskUiReady={taskUiReady}
+              projectLabel={backlogProjectLabel}
+              onOpenPicker={() => setShowBacklogProjectPicker(true)}
+            />
+          ) : null}
+
+          {provider !== 'linear' &&
+          provider !== 'backlog' &&
+          !(provider === 'github' && githubMode === 'project') ? (
             <Pressable
               style={styles.segmentButton}
               disabled={!taskUiReady}
@@ -9046,8 +9015,9 @@ export default function MobileTasksScreen() {
           ) : null}
         </ScrollView>
 
-        {provider === 'gitlab' && gitlabView === 'todos' ? null : provider === 'linear' &&
-          !linearConnected ? null : (
+        {provider === 'gitlab' && gitlabView === 'todos' ? null : (provider === 'linear' &&
+            !linearConnected) ||
+          (provider === 'backlog' && !backlogConnected) ? null : (
           <View style={styles.searchBar}>
             <MobileSearchField
               value={isGithubProjectSearch ? githubProjectSearch : query}
@@ -9067,7 +9037,7 @@ export default function MobileTasksScreen() {
                     (appliedGithubProjectSearch !== undefined &&
                       appliedGithubProjectSearch.length > 0)
                   : provider === 'github'
-                    ? query.trim() !== getTaskPresetQuery(githubPreset).trim()
+                    ? query.trim() !== getMobileTaskPresetQuery(githubPreset).trim()
                     : undefined
               }
               editable={taskUiReady}
@@ -9086,7 +9056,9 @@ export default function MobileTasksScreen() {
                 if (provider === 'github') {
                   persistTaskResumeState({
                     githubItemsPreset:
-                      nextQuery.trim() === getTaskPresetQuery(githubPreset) ? githubPreset : null,
+                      nextQuery.trim() === getMobileTaskPresetQuery(githubPreset)
+                        ? githubPreset
+                        : null,
                     githubItemsQuery: nextQuery.trim()
                   })
                 } else if (provider === 'linear') {
@@ -9110,7 +9082,7 @@ export default function MobileTasksScreen() {
                   return
                 }
                 if (provider === 'github') {
-                  const nextQuery = getTaskPresetQuery(githubPreset)
+                  const nextQuery = getMobileTaskPresetQuery(githubPreset)
                   setQuery(nextQuery)
                   setAppliedQuery(nextQuery)
                   persistTaskResumeState({
@@ -9234,6 +9206,8 @@ export default function MobileTasksScreen() {
             <Text style={styles.targetButtonText}>Connect Linear</Text>
           </Pressable>
         </View>
+      ) : provider === 'backlog' && !backlogConnected ? (
+        <MobileBacklogDisconnectedPrompt taskUiReady={taskUiReady} onConnect={openBacklogConnect} />
       ) : provider === 'github' && githubMode === 'project' ? (
         githubProjectLoading ? (
           <View style={styles.centered}>
@@ -9326,7 +9300,9 @@ export default function MobileTasksScreen() {
                       <Text style={styles.taskTitle} numberOfLines={2}>
                         {row.content.title}
                       </Text>
-                      <Text style={styles.updatedAt}>{formatUpdatedAt(row.updatedAt)}</Text>
+                      <Text style={styles.updatedAt}>
+                        {formatMobileTaskUpdatedAt(row.updatedAt)}
+                      </Text>
                     </View>
                     <View style={styles.metaRow}>
                       <View
@@ -9520,7 +9496,9 @@ export default function MobileTasksScreen() {
                         {issue.title}
                       </Text>
                       {effectiveLinearDisplayProperties.has('updated') ? (
-                        <Text style={styles.updatedAt}>{formatUpdatedAt(issue.updatedAt)}</Text>
+                        <Text style={styles.updatedAt}>
+                          {formatMobileTaskUpdatedAt(issue.updatedAt)}
+                        </Text>
                       ) : null}
                     </View>
                     <View style={styles.metaRow}>
@@ -9697,7 +9675,9 @@ export default function MobileTasksScreen() {
                     <Text style={styles.taskTitle} numberOfLines={2}>
                       {item.title}
                     </Text>
-                    <Text style={styles.updatedAt}>{formatUpdatedAt(item.updatedAt)}</Text>
+                    <Text style={styles.updatedAt}>
+                      {formatMobileTaskUpdatedAt(item.updatedAt)}
+                    </Text>
                   </View>
                   <View style={styles.metaRow}>
                     <View style={[styles.repoDot, { backgroundColor: repo.color }]} />
@@ -9792,19 +9772,19 @@ export default function MobileTasksScreen() {
             const preset =
               resume.githubItemsPreset === null
                 ? githubPreset
-                : normalizeGitHubPreset(resume.githubItemsPreset ?? githubPreset)
+                : normalizeMobileGitHubPreset(resume.githubItemsPreset ?? githubPreset)
             const nextQuery =
               resume.githubItemsPreset === null
                 ? (resume.githubItemsQuery ?? '')
-                : getTaskPresetQuery(preset)
-            const nextKind = githubKindFromQuery(nextQuery, preset)
+                : getMobileTaskPresetQuery(preset)
+            const nextKind = githubKindFromMobileTaskQuery(nextQuery, preset)
             setGithubPreset(preset)
             setGithubKind(nextKind)
             setQuery(nextQuery)
             setAppliedQuery(scopeGitHubTaskSearch(nextQuery, nextKind))
           } else if (next === 'linear') {
             const nextQuery = resume.linearQuery ?? ''
-            setLinearFilter(normalizeLinearFilter(resume.linearPreset))
+            setLinearFilter(normalizeMobileLinearFilter(resume.linearPreset))
             setQuery(nextQuery)
             setAppliedQuery(nextQuery.trim())
           } else {
@@ -9951,7 +9931,7 @@ export default function MobileTasksScreen() {
       <PickerModal
         visible={taskUiReady && showGitHubKindPicker}
         title="GitHub View"
-        options={GITHUB_KIND_OPTIONS}
+        options={MOBILE_TASKS_GITHUB_KIND_OPTIONS}
         selected={githubMode === 'project' ? 'project' : githubKind}
         onSelect={(kind) => {
           if (kind === 'project') {
@@ -9961,7 +9941,7 @@ export default function MobileTasksScreen() {
             return
           }
           const preset = kind === 'prs' ? 'prs' : 'issues'
-          const nextQuery = getTaskPresetQuery(preset)
+          const nextQuery = getMobileTaskPresetQuery(preset)
           setGithubMode('items')
           setGithubKind(kind)
           setGithubPreset(preset)
@@ -9982,7 +9962,7 @@ export default function MobileTasksScreen() {
         options={githubPresetPickerOptions}
         selected={githubPreset}
         onSelect={(preset) => {
-          const nextQuery = getTaskPresetQuery(preset)
+          const nextQuery = getMobileTaskPresetQuery(preset)
           setGithubMode('items')
           setGithubKind(preset === 'issues' || preset === 'my-issues' ? 'issues' : 'prs')
           setGithubPreset(preset)
@@ -10369,7 +10349,7 @@ export default function MobileTasksScreen() {
       <PickerModal
         visible={taskUiReady && showGitLabViewPicker}
         title="GitLab View"
-        options={GITLAB_VIEW_OPTIONS}
+        options={MOBILE_TASKS_GITLAB_VIEW_OPTIONS}
         selected={gitlabView}
         onSelect={(view) => {
           setGitlabView(view)
@@ -10387,7 +10367,7 @@ export default function MobileTasksScreen() {
       <PickerModal
         visible={taskUiReady && showGitLabFilterPicker}
         title="GitLab Filter"
-        options={GITLAB_FILTER_OPTIONS}
+        options={MOBILE_TASKS_GITLAB_FILTER_OPTIONS}
         selected={gitlabFilter}
         onSelect={setGitlabFilter}
         onClose={() => setShowGitLabFilterPicker(false)}
@@ -10396,7 +10376,7 @@ export default function MobileTasksScreen() {
       <PickerModal
         visible={taskUiReady && showLinearFilterPicker}
         title="Linear Filter"
-        options={LINEAR_FILTER_OPTIONS}
+        options={MOBILE_TASKS_LINEAR_FILTER_OPTIONS}
         selected={linearFilter}
         onSelect={(filter) => {
           setLinearFilter(filter)
@@ -10555,7 +10535,7 @@ export default function MobileTasksScreen() {
       <PickerModal
         visible={taskUiReady && showLinearViewPicker}
         title="Linear View"
-        options={LINEAR_VIEW_OPTIONS}
+        options={MOBILE_TASKS_LINEAR_VIEW_OPTIONS}
         selected={linearViewMode}
         onSelect={setLinearViewMode}
         onClose={() => setShowLinearViewPicker(false)}
@@ -10564,7 +10544,7 @@ export default function MobileTasksScreen() {
       <PickerModal
         visible={taskUiReady && showLinearGroupPicker}
         title="Group Linear Issues"
-        options={LINEAR_GROUP_OPTIONS}
+        options={MOBILE_TASKS_LINEAR_GROUP_OPTIONS}
         selected={linearGroupBy}
         onSelect={setLinearGroupBy}
         onClose={() => setShowLinearGroupPicker(false)}
@@ -10573,7 +10553,7 @@ export default function MobileTasksScreen() {
       <PickerModal
         visible={taskUiReady && showLinearOrderPicker}
         title="Order Linear Issues"
-        options={LINEAR_ORDER_OPTIONS}
+        options={MOBILE_TASKS_LINEAR_ORDER_OPTIONS}
         selected={linearOrderBy}
         onSelect={setLinearOrderBy}
         onClose={() => setShowLinearOrderPicker(false)}
@@ -10587,7 +10567,7 @@ export default function MobileTasksScreen() {
           <Text style={styles.sheetTitle}>Display Properties</Text>
         </View>
         <View style={styles.repoPickerGroup}>
-          {LINEAR_DISPLAY_OPTIONS.map((property, index) => {
+          {MOBILE_TASKS_LINEAR_DISPLAY_OPTIONS.map((property, index) => {
             const selected = effectiveLinearDisplayProperties.has(property.value)
             return (
               <View key={property.value}>
@@ -10623,7 +10603,7 @@ export default function MobileTasksScreen() {
       <PickerModal
         visible={taskUiReady && showSortPicker}
         title="Sort Tasks"
-        options={SORT_OPTIONS}
+        options={MOBILE_TASKS_SORT_OPTIONS}
         selected={taskSort}
         onSelect={setTaskSort}
         onClose={() => setShowSortPicker(false)}
@@ -10859,6 +10839,33 @@ export default function MobileTasksScreen() {
           </Pressable>
         </View>
       </BottomDrawer>
+
+      <MobileBacklogConnectDrawer
+        visible={taskUiReady && showBacklogConnect}
+        serverUrl={backlogServerUrlDraft}
+        token={backlogTokenDraft}
+        connectState={backlogConnectState}
+        connectError={backlogConnectError}
+        onServerUrlChange={setBacklogServerUrlDraft}
+        onTokenChange={setBacklogTokenDraft}
+        onClearConnectError={() => {
+          setBacklogConnectState('idle')
+          setBacklogConnectError('')
+        }}
+        onConnect={() => void connectBacklogAccount()}
+        onClose={() => setShowBacklogConnect(false)}
+      />
+
+      <MobileBacklogProjectPickerModal
+        visible={taskUiReady && showBacklogProjectPicker}
+        options={backlogProjectPickerOptions}
+        selected={selectedBacklogProjectId ?? ''}
+        onSelect={(projectId) => {
+          setSelectedBacklogProjectId(projectId)
+          setShowBacklogProjectPicker(false)
+        }}
+        onClose={() => setShowBacklogProjectPicker(false)}
+      />
 
       <PickerModal
         visible={taskUiReady && workspaceRepoPickerItem != null}
@@ -12712,6 +12719,9 @@ export default function MobileTasksScreen() {
                         <Text style={styles.detailMetaValue}>{detailPayload.assignee}</Text>
                       </View>
                     ) : null}
+                    {detailPayload.provider === 'backlog' && detailPayload.assignee ? (
+                      <MobileBacklogDetailAssigneeMeta assignee={detailPayload.assignee} />
+                    ) : null}
                     {detailPayload.provider === 'linear' && detailPayload.project ? (
                       <View style={styles.detailMetaItem}>
                         <Text style={styles.detailMetaLabel}>Project</Text>
@@ -13417,7 +13427,10 @@ export default function MobileTasksScreen() {
                 style={styles.actionRow}
                 disabled={creatingKey === actionItem.key}
                 onPress={() => {
-                  if (actionItem.provider === 'linear' && workspaceRepos.length > 1) {
+                  if (
+                    (actionItem.provider === 'linear' || actionItem.provider === 'backlog') &&
+                    workspaceRepos.length > 1
+                  ) {
                     setWorkspaceRepoPickerItem(actionItem)
                     return
                   }

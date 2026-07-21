@@ -11,7 +11,9 @@ import {
 import type { RpcClient } from '../transport/rpc-client'
 import { isGitHubWorkItemsSshRemoteRequiredError } from './mobile-work-items'
 import type { MrStateFilter } from './mobile-composer-source-types'
+import type { BacklogTask } from '../../../src/shared/backlog-types'
 import {
+  searchBacklogTasks,
   searchBranches,
   searchGitHubItems,
   searchGitLabItems,
@@ -22,6 +24,7 @@ export type SmartFanOutResult = {
   githubItems: GitHubWorkItem[]
   gitlabItems: GitLabWorkItem[]
   linearIssues: LinearIssue[]
+  backlogTasks: BacklogTask[]
   branches: BaseRefSearchResult[]
   needsGitHubRemote: boolean
   error: string
@@ -31,6 +34,7 @@ const EMPTY: Omit<SmartFanOutResult, 'needsGitHubRemote' | 'error'> = {
   githubItems: [],
   gitlabItems: [],
   linearIssues: [],
+  backlogTasks: [],
   branches: []
 }
 
@@ -46,6 +50,10 @@ function shouldSearchLinear(mode: SmartNameMode, linearAvailable: boolean): bool
   return linearAvailable && (mode === 'smart' || mode === 'linear')
 }
 
+function shouldSearchBacklog(mode: SmartNameMode, backlogAvailable: boolean): boolean {
+  return backlogAvailable && (mode === 'smart' || mode === 'backlog')
+}
+
 function shouldSearchBranches(mode: SmartNameMode, query: string): boolean {
   return mode === 'branches' || (mode === 'smart' && query.trim().length > 0)
 }
@@ -58,6 +66,8 @@ type FanOutArgs = {
   githubAvailable: boolean
   gitlabAvailable: boolean
   linearAvailable: boolean
+  backlogAvailable: boolean
+  backlogVisibleProjectIds: readonly string[]
   mrStateFilter: MrStateFilter
   linearWorkspaceId: string | null | undefined
 }
@@ -95,13 +105,17 @@ export async function fanOutSmartSearch(args: FanOutArgs): Promise<SmartFanOutRe
     linear: shouldSearchLinear(mode, linearAvailable)
       ? searchLinearIssues(client, query, args.linearWorkspaceId)
       : null,
+    backlog: shouldSearchBacklog(mode, args.backlogAvailable)
+      ? searchBacklogTasks(client, query, args.backlogVisibleProjectIds)
+      : null,
     branches:
       shouldSearchBranches(mode, query) && repoId ? searchBranches(client, repoId, query) : null
   }
-  const [github, gitlab, linear, branches] = await Promise.allSettled([
+  const [github, gitlab, linear, backlog, branches] = await Promise.allSettled([
     tasks.github ?? Promise.resolve<GitHubWorkItem[]>([]),
     tasks.gitlab ?? Promise.resolve<GitLabWorkItem[]>([]),
     tasks.linear ?? Promise.resolve<LinearIssue[]>([]),
+    tasks.backlog ?? Promise.resolve<BacklogTask[]>([]),
     tasks.branches ?? Promise.resolve<BaseRefSearchResult[]>([])
   ])
 
@@ -125,6 +139,9 @@ export async function fanOutSmartSearch(args: FanOutArgs): Promise<SmartFanOutRe
   if (linear.status === 'rejected') {
     fail(linear.reason)
   }
+  if (backlog.status === 'rejected') {
+    fail(backlog.reason)
+  }
   if (branches.status === 'rejected') {
     fail(branches.reason)
   }
@@ -134,6 +151,7 @@ export async function fanOutSmartSearch(args: FanOutArgs): Promise<SmartFanOutRe
     githubItems: github.status === 'fulfilled' ? github.value : [],
     gitlabItems: gitlab.status === 'fulfilled' ? gitlab.value : [],
     linearIssues: linear.status === 'fulfilled' ? linear.value : [],
+    backlogTasks: backlog.status === 'fulfilled' ? backlog.value : [],
     branches: branches.status === 'fulfilled' ? branches.value : [],
     needsGitHubRemote,
     error

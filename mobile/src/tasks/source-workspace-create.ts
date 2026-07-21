@@ -11,6 +11,12 @@ import {
   type WorkspaceCreateSetupDecision,
   type WorkspaceCreateTaskItem
 } from './workspace-create-params'
+import { backlogTaskToWorkspaceCreateItem } from './backlog-mobile-task-helpers'
+import {
+  markMobileBacklogTaskInProgress,
+  resolveMobileBacklogStartupEnv
+} from './backlog-mobile-launch'
+import { getBacklogTask } from './backlog-mobile-rpc'
 import { createWorktreeWithNameRetry, type WorktreeCreateResult } from './worktree-create-retry'
 
 // The agent bundle the modal already resolved: the choice drives
@@ -70,6 +76,18 @@ function toTaskItem(item: MobileLinkedWorkItem, targetRepoId: string): Workspace
       }
     }
   }
+  if (item.provider === 'backlog') {
+    return {
+      provider: 'backlog',
+      source: {
+        id: item.backlogTaskId ?? '',
+        projectId: item.backlogProjectId ?? '',
+        title: item.title,
+        url: item.url,
+        body: ''
+      }
+    }
+  }
   return {
     provider: 'linear',
     source: {
@@ -97,7 +115,16 @@ async function createWorkItemWorkspace(args: {
 }): Promise<WorktreeCreateResult> {
   const { client, selection, targetRepoId, setupDecision, agent, workspaceName, note } = args
   const item = selection.item
-  const taskItem = toTaskItem(item, targetRepoId)
+  let taskItem = toTaskItem(item, targetRepoId)
+  if (
+    taskItem.provider === 'backlog' &&
+    !taskItem.source.body.trim() &&
+    taskItem.source.projectId &&
+    taskItem.source.id
+  ) {
+    const task = await getBacklogTask(client, taskItem.source.projectId, taskItem.source.id)
+    taskItem = backlogTaskToWorkspaceCreateItem(task)
+  }
 
   // The composer resolves PR/MR base at select time; only re-resolve as a
   // fallback when a linked PR/MR reached create without one.
@@ -105,7 +132,12 @@ async function createWorkItemWorkspace(args: {
   let compareBaseRef = selection.compareBaseRef
   let pushTarget = selection.pushTarget
   let branchNameOverride = selection.branchNameOverride
-  if (!baseBranch && item.provider !== 'linear' && (item.type === 'pr' || item.type === 'mr')) {
+  if (
+    !baseBranch &&
+    item.provider !== 'linear' &&
+    item.provider !== 'backlog' &&
+    (item.type === 'pr' || item.type === 'mr')
+  ) {
     const repoId = item.repoId ?? targetRepoId
     const resolved =
       item.type === 'pr'
@@ -119,6 +151,19 @@ async function createWorkItemWorkspace(args: {
     }
   }
 
+  let startupEnv: Record<string, string> | undefined
+  if (taskItem.provider === 'backlog') {
+    const launch = await resolveMobileBacklogStartupEnv({
+      client,
+      projectId: taskItem.source.projectId,
+      taskId: taskItem.source.id
+    })
+    if (!launch.ok) {
+      return { error: launch.error }
+    }
+    startupEnv = launch.startupEnv
+  }
+
   const params = buildTaskWorkspaceCreateParams({
     item: taskItem,
     targetRepoId,
@@ -130,17 +175,30 @@ async function createWorkItemWorkspace(args: {
     compareBaseRef,
     branchNameOverride,
     pushTarget,
-    nameIsAutoManaged: args.nameIsAutoManaged
+    nameIsAutoManaged: args.nameIsAutoManaged,
+    startupEnv
   })
   // buildTaskWorkspaceCreateParams computes the name; reuse it as the retry base
   // so collisions still append -2, -3, ... like the blank path does.
   const baseName = String(params.name)
-  return createWorktreeWithNameRetry({
+  const created = await createWorktreeWithNameRetry({
     client,
     baseName,
     supportsIdempotentCutoverRetry: args.supportsIdempotentCutoverRetry,
     buildParams: (name) => ({ ...params, name })
   })
+  if (!('error' in created) && taskItem.provider === 'backlog') {
+    const mark = await markMobileBacklogTaskInProgress({
+      client,
+      projectId: taskItem.source.projectId,
+      taskId: taskItem.source.id
+    })
+    if (!mark.ok) {
+      // Non-blocking: workspace already created.
+      console.warn('[backlog] failed to mark task in progress:', mark.error)
+    }
+  }
+  return created
 }
 
 async function createBranchWorkspace(args: {

@@ -1,6 +1,6 @@
-export type TaskProvider = 'github' | 'gitlab' | 'linear'
+export type TaskProvider = 'github' | 'gitlab' | 'linear' | 'backlog'
 
-const MOBILE_TASK_PROVIDERS: readonly TaskProvider[] = ['github', 'gitlab', 'linear']
+const MOBILE_TASK_PROVIDERS: readonly TaskProvider[] = ['github', 'gitlab', 'linear', 'backlog']
 
 const TASK_PROVIDER_SET = new Set<TaskProvider>(MOBILE_TASK_PROVIDERS)
 
@@ -40,6 +40,10 @@ export function filterAvailableTaskProviders(
     if (provider === 'gitlab') {
       return availability.gitlabInstalled
     }
+    // Why: Backlog can be connected from the Tasks surface itself, like desktop Jira/Backlog.
+    if (provider === 'backlog') {
+      return true
+    }
     return availability.linearConnected
   })
 
@@ -54,4 +58,8 @@ export function resolveVisibleTaskProvider(
     return preferred
   }
   return visibleProviders[0] ?? 'github'
+}
+
+export function isTaskProvider(value: unknown): value is TaskProvider {
+  return value === 'github' || value === 'gitlab' || value === 'linear' || value === 'backlog'
 }

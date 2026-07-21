@@ -1,32 +1,24 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
-import type { GitHubWorkItem, GitLabWorkItem, LinearIssue } from '../../../src/shared/types'
+import { useCallback, useRef, useState } from 'react'
 import { resolveComposerManualBranchNameChange } from '../../../src/shared/composer-branch-selection'
-import { resolveGitHubWorkItemIdentity } from '../../../src/shared/new-workspace/github-work-item-identity'
-import { getForkPushWarning } from '../../../src/shared/new-workspace/fork-push-warning'
+import { shouldApplyAutoName } from './composer-linked-work-item'
 import type { RpcClient } from '../transport/rpc-client'
 import {
-  buildGitHubLinkedWorkItem,
-  buildGitLabLinkedWorkItem,
-  buildLinearLinkedWorkItem,
-  buildSmartNameSelection,
-  resolveComposerBranchPick,
-  resolveComposerCreateSelection,
-  resolveLinearAutoName,
-  resolveWorkItemAutoName,
-  shouldApplyAutoName
-} from './composer-linked-work-item'
+  MOBILE_COMPOSER_EMPTY_BASE,
+  useMobileComposerBaseResolve
+} from './mobile-composer-base-resolve'
 import {
-  resolveComposerMrBase,
-  resolveComposerPrBase,
-  type ComposerHostedBase
-} from './composer-source-base-resolve'
-import type {
-  ComposerBaseState,
-  MobileComposerCreateSelection,
-  MobileLinkedWorkItem,
-  SmartNameSelection
-} from './mobile-composer-source-types'
-const EMPTY_BASE: ComposerBaseState = {}
+  useMobileComposerBranchSelect,
+  useMobileComposerClearSmartSelection,
+  useMobileComposerCreateBranch
+} from './mobile-composer-branch-select'
+import { useMobileComposerBacklogTaskSelect } from './mobile-composer-backlog-source'
+import { useMobileComposerDerivedSelection } from './mobile-composer-derived-selection'
+import {
+  useMobileComposerGitHubItemSelect,
+  useMobileComposerGitLabItemSelect
+} from './mobile-composer-hosted-item-select'
+import { useMobileComposerLinearIssueSelect } from './mobile-composer-linear-source'
+import type { ComposerBaseState, MobileLinkedWorkItem } from './mobile-composer-source-types'
 
 export type UseMobileComposerSourceArgs = {
   client: RpcClient | null
@@ -39,18 +31,15 @@ export function useMobileComposerSource(args: UseMobileComposerSourceArgs) {
   const { client, selectedRepoId, worktreeBranches = [], onError } = args
   const [name, setNameState] = useState('')
   const [linkedWorkItem, setLinkedWorkItem] = useState<MobileLinkedWorkItem | null>(null)
-  const [base, setBase] = useState<ComposerBaseState>(EMPTY_BASE)
+  const [base, setBase] = useState<ComposerBaseState>(MOBILE_COMPOSER_EMPTY_BASE)
   const [reuseEligibleBranch, setReuseEligibleBranch] = useState<string | null>(null)
   const [reuseSelectedBranch, setReuseSelectedBranch] = useState(false)
   const [forkPushWarning, setForkPushWarning] = useState<string | null>(null)
   const [resolvingBase, setResolvingBase] = useState(false)
-  // Set when the "Create branch <name>" row is picked, so the typed name (which
-  // may contain slashes) is kept verbatim as the git branch (folder is sanitized).
   const [branchCreateIntent, setBranchCreateIntent] = useState(false)
 
   const lastAutoNameRef = useRef('')
   const branchSelectionRef = useRef<{ refName: string; localBranchName: string } | null>(null)
-  // Guards async base resolution: only the latest selection applies its result.
   const resolveTokenRef = useRef(0)
 
   const setName = useCallback((value: string) => setNameState(value), [])
@@ -65,204 +54,83 @@ export function useMobileComposerSource(args: UseMobileComposerSourceArgs) {
   const clearBaseAndBranch = useCallback(() => {
     branchSelectionRef.current = null
     setBranchCreateIntent(false)
-    setBase(EMPTY_BASE)
+    setBase(MOBILE_COMPOSER_EMPTY_BASE)
     setReuseEligibleBranch(null)
     setReuseSelectedBranch(false)
     setForkPushWarning(null)
-    // Why: a superseding selection bumps the resolve token, so an in-flight base
-    // resolve's token-gated finally can no longer clear this — reset it here so
-    // resolvingBase never sticks true after switching sources.
+    // Why: superseding selection bumps the resolve token; reset resolvingBase here
+    // so an in-flight base resolve cannot leave the flag stuck true.
     setResolvingBase(false)
   }, [])
 
-  // Applies an async PR/MR base resolution guarded by the current token so only
-  // the latest selection wins; failures clear the base and surface the error.
-  const runBaseResolve = useCallback(
-    (token: number, resolve: Promise<ComposerHostedBase>) => {
-      setResolvingBase(true)
-      void resolve
-        .then((result) => {
-          if (resolveTokenRef.current !== token) {
-            return
-          }
-          setBase({
-            baseBranch: result.baseBranch,
-            compareBaseRef: result.compareBaseRef,
-            pushTarget: result.pushTarget,
-            branchNameOverride: result.branchNameOverride
-          })
-          setForkPushWarning(getForkPushWarning(result))
-        })
-        .catch((error: unknown) => {
-          if (resolveTokenRef.current !== token) {
-            return
-          }
-          setBase(EMPTY_BASE)
-          onError?.(error instanceof Error ? error.message : 'Failed to resolve base branch.')
-        })
-        .finally(() => {
-          if (resolveTokenRef.current === token) {
-            setResolvingBase(false)
-          }
-        })
-    },
-    [onError]
-  )
+  const runBaseResolve = useMobileComposerBaseResolve({
+    resolveTokenRef,
+    onError,
+    setBase,
+    setForkPushWarning,
+    setResolvingBase
+  })
 
-  const handleSmartGitHubItemSelect = useCallback(
-    (item: GitHubWorkItem) => {
-      const token = (resolveTokenRef.current += 1)
-      const identity = resolveGitHubWorkItemIdentity(item)
-      // Resolve the PR base against the item's OWN repo — a cross-repo accept
-      // switches repos then selects synchronously, so selectedRepoId is stale.
-      const repoId = item.repoId || selectedRepoId
-      setLinkedWorkItem(
-        buildGitHubLinkedWorkItem({
-          type: identity.type,
-          number: identity.number,
-          title: item.title,
-          url: item.url,
-          repoId: item.repoId
-        })
-      )
-      applyAutoName(
-        resolveWorkItemAutoName({ ...identity, title: item.title, provider: 'github' }),
-        name
-      )
-      clearBaseAndBranch()
-      if (identity.type !== 'pr' || !client || !repoId) {
-        return
-      }
-      runBaseResolve(
-        token,
-        resolveComposerPrBase({
-          client,
-          repoId,
-          prNumber: identity.number,
-          ...(item.branchName ? { headRefName: item.branchName } : {}),
-          ...(item.baseRefName ? { baseRefName: item.baseRefName } : {}),
-          ...(item.isCrossRepository !== undefined
-            ? { isCrossRepository: item.isCrossRepository }
-            : {})
-        })
-      )
-    },
-    [applyAutoName, clearBaseAndBranch, client, name, runBaseResolve, selectedRepoId]
-  )
+  const selectHandlerDeps = {
+    client,
+    selectedRepoId,
+    name,
+    resolveTokenRef,
+    setLinkedWorkItem,
+    applyAutoName,
+    clearBaseAndBranch,
+    runBaseResolve
+  }
 
-  const handleSmartGitLabItemSelect = useCallback(
-    (item: GitLabWorkItem) => {
-      const token = (resolveTokenRef.current += 1)
-      // Resolve the MR base against the item's OWN repo (see the GitHub handler).
-      const repoId = item.repoId || selectedRepoId
-      setLinkedWorkItem(
-        buildGitLabLinkedWorkItem({
-          type: item.type,
-          number: item.number,
-          title: item.title,
-          url: item.url,
-          repoId: item.repoId
-        })
-      )
-      applyAutoName(
-        resolveWorkItemAutoName({
-          type: item.type,
-          number: item.number,
-          title: item.title,
-          provider: 'gitlab'
-        }),
-        name
-      )
-      clearBaseAndBranch()
-      if (item.type !== 'mr' || !client || !repoId) {
-        return
-      }
-      runBaseResolve(
-        token,
-        resolveComposerMrBase({
-          client,
-          repoId,
-          mrIid: item.number,
-          ...(item.branchName ? { sourceBranch: item.branchName } : {}),
-          ...(item.baseRefName ? { targetBranch: item.baseRefName } : {}),
-          ...(item.isCrossRepository !== undefined
-            ? { isCrossRepository: item.isCrossRepository }
-            : {})
-        })
-      )
-    },
-    [applyAutoName, clearBaseAndBranch, client, name, runBaseResolve, selectedRepoId]
-  )
-
-  const handleSmartLinearIssueSelect = useCallback(
-    (issue: LinearIssue) => {
-      resolveTokenRef.current += 1
-      setLinkedWorkItem(buildLinearLinkedWorkItem(issue))
-      const suggested = resolveLinearAutoName(issue)
-      const identifierTyped = name.trim().toLowerCase() === issue.identifier.toLowerCase()
-      if (
-        suggested &&
-        (identifierTyped ||
-          shouldApplyAutoName({ currentName: name, lastAutoName: lastAutoNameRef.current }))
-      ) {
-        setNameState(suggested)
-        lastAutoNameRef.current = suggested
-      }
-      clearBaseAndBranch()
-    },
-    [clearBaseAndBranch, name]
-  )
-
-  const handleSmartBranchSelect = useCallback(
-    (refName: string, localBranchName: string) => {
-      resolveTokenRef.current += 1
-      setLinkedWorkItem(null)
-      setForkPushWarning(null)
-      setBranchCreateIntent(false)
-      setResolvingBase(false)
-      const pick = resolveComposerBranchPick({
-        refName,
-        localBranchName,
-        currentName: name,
-        lastAutoName: lastAutoNameRef.current,
-        worktreeBranches
-      })
-      setReuseEligibleBranch(pick.reuseEligibleBranch)
-      setReuseSelectedBranch(pick.reuseSelectedBranch)
-      setBase(pick.base)
-      branchSelectionRef.current = { refName, localBranchName }
-      if (pick.name !== undefined) {
-        setNameState(pick.name)
-        lastAutoNameRef.current = pick.lastAutoName ?? ''
-      }
-    },
-    [name, worktreeBranches]
-  )
-
-  // Picking "Create branch <name>": name the workspace and mark a new-branch
-  // intent so the typed (possibly slashy) name is kept verbatim as the git branch.
-  const handleSmartCreateBranch = useCallback(
-    (branchName: string) => {
-      resolveTokenRef.current += 1
-      setLinkedWorkItem(null)
-      clearBaseAndBranch()
-      setNameState(branchName)
-      lastAutoNameRef.current = branchName
-      setBranchCreateIntent(true)
-    },
-    [clearBaseAndBranch]
-  )
-
-  const handleClearSmartNameSelection = useCallback(() => {
-    resolveTokenRef.current += 1
-    setLinkedWorkItem(null)
-    clearBaseAndBranch()
-    setResolvingBase(false)
-    if (name === lastAutoNameRef.current) {
-      setNameState('')
-      lastAutoNameRef.current = ''
-    }
-  }, [clearBaseAndBranch, name])
+  const handleSmartGitHubItemSelect = useMobileComposerGitHubItemSelect(selectHandlerDeps)
+  const handleSmartGitLabItemSelect = useMobileComposerGitLabItemSelect(selectHandlerDeps)
+  const handleSmartLinearIssueSelect = useMobileComposerLinearIssueSelect({
+    name,
+    resolveTokenRef,
+    lastAutoNameRef,
+    setLinkedWorkItem,
+    setNameState,
+    clearBaseAndBranch
+  })
+  const handleSmartBacklogTaskSelect = useMobileComposerBacklogTaskSelect({
+    name,
+    resolveTokenRef,
+    setLinkedWorkItem,
+    applyAutoName,
+    clearBaseAndBranch
+  })
+  const handleSmartBranchSelect = useMobileComposerBranchSelect({
+    name,
+    worktreeBranches,
+    resolveTokenRef,
+    lastAutoNameRef,
+    branchSelectionRef,
+    setLinkedWorkItem,
+    setForkPushWarning,
+    setBranchCreateIntent,
+    setResolvingBase,
+    setReuseEligibleBranch,
+    setReuseSelectedBranch,
+    setBase,
+    setNameState
+  })
+  const handleSmartCreateBranch = useMobileComposerCreateBranch({
+    resolveTokenRef,
+    lastAutoNameRef,
+    setLinkedWorkItem,
+    setNameState,
+    setBranchCreateIntent,
+    clearBaseAndBranch
+  })
+  const handleClearSmartNameSelection = useMobileComposerClearSmartSelection({
+    name,
+    resolveTokenRef,
+    lastAutoNameRef,
+    setLinkedWorkItem,
+    setNameState,
+    setResolvingBase,
+    clearBaseAndBranch
+  })
 
   const handleBranchNameOverrideChange = useCallback(
     (value: string) => {
@@ -281,27 +149,16 @@ export function useMobileComposerSource(args: UseMobileComposerSourceArgs) {
     [base, forkPushWarning]
   )
 
-  const smartNameSelection = useMemo<SmartNameSelection | null>(
-    () => buildSmartNameSelection({ linkedWorkItem, baseBranch: base.baseBranch }),
-    [base.baseBranch, linkedWorkItem]
-  )
+  const { smartNameSelection, createSelection } = useMobileComposerDerivedSelection({
+    linkedWorkItem,
+    base,
+    branchSelectionRef,
+    reuseEligibleBranch,
+    reuseSelectedBranch,
+    branchCreateIntent,
+    name
+  })
 
-  const createSelection = useMemo<MobileComposerCreateSelection | null>(
-    () =>
-      resolveComposerCreateSelection({
-        linkedWorkItem,
-        base,
-        branch: branchSelectionRef.current,
-        reuseEligibleBranch,
-        reuseSelectedBranch,
-        branchCreateIntent,
-        name
-      }),
-    [base, branchCreateIntent, linkedWorkItem, name, reuseEligibleBranch, reuseSelectedBranch]
-  )
-
-  // Auto-managed until the user edits the name away from the last derived value;
-  // desktop suppresses the workspace displayName once the name is user-edited.
   const isNameAutoManaged = !name.trim() || name === lastAutoNameRef.current
 
   return {
@@ -321,6 +178,7 @@ export function useMobileComposerSource(args: UseMobileComposerSourceArgs) {
     handleSmartGitHubItemSelect,
     handleSmartGitLabItemSelect,
     handleSmartLinearIssueSelect,
+    handleSmartBacklogTaskSelect,
     handleSmartBranchSelect,
     handleSmartCreateBranch,
     handleClearSmartNameSelection

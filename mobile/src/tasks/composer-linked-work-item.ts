@@ -4,6 +4,7 @@ import {
   buildGitHubWorkspaceSource,
   buildGitLabWorkspaceSource,
   buildLinearWorkspaceSource,
+  buildBacklogWorkspaceSource,
   buildWorkspaceSourceSelection,
   getWorkspaceSourceName,
   shouldApplyWorkspaceSourceAutoName
@@ -43,6 +44,15 @@ export function buildLinearLinkedWorkItem(issue: {
   workspaceId?: string
 }): MobileLinkedWorkItem {
   return buildLinearWorkspaceSource(issue)
+}
+
+export function buildBacklogLinkedWorkItem(task: {
+  id: string
+  projectId: string
+  title: string
+  url: string
+}): MobileLinkedWorkItem {
+  return buildBacklogWorkspaceSource(task)
 }
 
 // Faithful port of desktop applyLinkedWorkItem's name gate: the derived name

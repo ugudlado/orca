@@ -4,14 +4,18 @@ import type {
   GitLabWorkItem,
   LinearIssue
 } from '../../../src/shared/types'
+import type { BacklogTask } from '../../../src/shared/backlog-types'
 import type { RpcClient } from '../transport/rpc-client'
 import type { RpcSuccess } from '../transport/types'
 import { extractLinearIssueReadItems } from './linear-mobile-issue-read'
+import { listBacklogProjects, listBacklogTasks } from './backlog-mobile-rpc'
+import { filterBacklogTasksByQuery } from './backlog-mobile-task-helpers'
 import { PER_REPO_FETCH_LIMIT } from './mobile-work-items'
 import type { MrStateFilter } from './mobile-composer-source-types'
 
 const GITLAB_PER_PAGE = 50
 const LINEAR_LIMIT = 50
+const BACKLOG_LIMIT = 50
 const BRANCH_LIMIT = 20
 
 // Why: the desktop Smart picker returns BOTH issues and PRs — the runtime's
@@ -93,6 +97,26 @@ export async function searchLinearIssues(
   // extractLinearIssueReadItems yields the mobile issue-read shape; the fields the
   // row builder/create flow read (id/identifier/title/url/state/team) are a subset.
   return extractLinearIssueReadItems((response as RpcSuccess).result) as unknown as LinearIssue[]
+}
+
+export async function searchBacklogTasks(
+  client: RpcClient,
+  query: string,
+  visibleProjectIds: readonly string[]
+): Promise<BacklogTask[]> {
+  const projectIds =
+    visibleProjectIds.length > 0
+      ? visibleProjectIds
+      : (await listBacklogProjects(client)).map((project) => String(project.id))
+  if (projectIds.length === 0) {
+    return []
+  }
+  const lists = await Promise.all(
+    projectIds.map((projectId) => listBacklogTasks(client, projectId))
+  )
+  const merged = lists.flat()
+  const filtered = filterBacklogTasksByQuery(merged, query)
+  return filtered.slice(0, BACKLOG_LIMIT)
 }
 
 export async function searchBranches(

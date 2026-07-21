@@ -1,6 +1,7 @@
+import { ListTodo } from 'lucide-react-native'
 import Svg, { Path } from 'react-native-svg'
 
-export type TaskProviderLogoKind = 'github' | 'gitlab' | 'linear'
+export type TaskProviderLogoKind = 'github' | 'gitlab' | 'linear' | 'backlog'
 
 type Props = {
   provider: TaskProviderLogoKind
@@ -9,6 +10,10 @@ type Props = {
 }
 
 export function TaskProviderLogo({ provider, size = 16, color }: Props) {
+  if (provider === 'backlog') {
+    return <ListTodo size={size} color={color} strokeWidth={1.75} />
+  }
+
   if (provider === 'github') {
     return (
       <Svg

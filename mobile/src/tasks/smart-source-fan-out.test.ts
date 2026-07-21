@@ -29,6 +29,8 @@ const smartArgs = {
   githubAvailable: true,
   gitlabAvailable: true,
   linearAvailable: true,
+  backlogAvailable: true,
+  backlogVisibleProjectIds: ['1'],
   mrStateFilter: 'opened' as const,
   linearWorkspaceId: null
 }

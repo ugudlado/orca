@@ -48,7 +48,7 @@ import {
   refreshMobileNewWorkspaceDialogSelectedRepo,
   resolveMobileNewWorkspaceDialogRepoId
 } from '../worktree/new-workspace-dialog-repo-selection'
-import { createBlankWorkspace } from '../tasks/blank-workspace-create'
+import { resolveBacklogVisibleProjectIds } from '../tasks/backlog-mobile-task-helpers'
 import { createWorkspaceFromComposerSource } from '../tasks/source-workspace-create'
 import { useNewWorktreeRuntimeCapabilities } from '../tasks/worktree-create-capability'
 import { normalizeWorkspaceAgent } from '../tasks/workspace-agent-selection'
@@ -210,6 +210,8 @@ function NewWorktreeModalContent({
   const [sshConnectingTargetId, setSshConnectingTargetId] = useState<string | null>(null)
   const [note, setNote] = useState('')
   const [availableProviders, setAvailableProviders] = useState<TaskProvider[]>([])
+  const [backlogSmartAvailable, setBacklogSmartAvailable] = useState(false)
+  const [backlogSmartProjectIds, setBacklogSmartProjectIds] = useState<string[]>([])
   const { tasksSupported, getWorktreeCreateCutoverSupport } = useNewWorktreeRuntimeCapabilities(
     client,
     visible
@@ -304,7 +306,8 @@ function NewWorktreeModalContent({
     hasRepo: selectedRepo != null,
     githubAvailable: availableProviders.includes('github'),
     gitlabAvailable: availableProviders.includes('gitlab'),
-    linearAvailable: availableProviders.includes('linear')
+    linearAvailable: availableProviders.includes('linear'),
+    backlogAvailable: backlogSmartAvailable
   }
   const pasteRepos = useMemo<PasteRepoCandidate[]>(
     () =>
@@ -377,7 +380,8 @@ function NewWorktreeModalContent({
       // can't discard the already-resolved critical settings/ui results.
       const probes = Promise.allSettled([
         client.sendRequest('preflight.check'),
-        client.sendRequest('linear.status')
+        client.sendRequest('linear.status'),
+        client.sendRequest('backlog.status')
       ])
       const okResult = (entry: PromiseSettledResult<RpcResponse>): RpcSuccess | null =>
         entry.status === 'fulfilled' && entry.value.ok ? (entry.value as RpcSuccess) : null
@@ -409,7 +413,7 @@ function NewWorktreeModalContent({
         setTrustedOrcaHooks(ui?.trustedOrcaHooks ?? {})
       }
 
-      const [preflightRes, linearRes] = await probes
+      const [preflightRes, linearRes, backlogStatusRes] = await probes
       if (stale) {
         return
       }
@@ -418,15 +422,20 @@ function NewWorktreeModalContent({
           ?.installed === true
       const linearConnected =
         (okResult(linearRes)?.result as { connected?: boolean } | undefined)?.connected === true
+      const backlogConnected =
+        (okResult(backlogStatusRes)?.result as { connected?: boolean } | undefined)?.connected ===
+        true
       const visibleProviders = normalizeVisibleTaskProviders(settingsValue?.visibleTaskProviders)
       setAvailableProviders(
-        // Drop filterAvailableTaskProviders' forced 'github' fallback when the user
-        // hid GitHub; the Branch tab always guarantees at least one tab remains.
         filterAvailableTaskProviders(visibleProviders, {
           gitlabInstalled: glabInstalled,
           linearConnected
         }).filter((provider) => visibleProviders.includes(provider))
       )
+      setBacklogSmartProjectIds(
+        resolveBacklogVisibleProjectIds(settingsValue?.backlogVisibleProjectIds, [])
+      )
+      setBacklogSmartAvailable(backlogConnected)
     })()
     return () => {
       stale = true
@@ -1059,6 +1068,8 @@ function NewWorktreeModalContent({
         availability={sourceAvailability}
         repoId={selectedRepo?.id ?? null}
         repos={pasteRepos}
+        backlogAvailable={backlogSmartAvailable}
+        backlogVisibleProjectIds={backlogSmartProjectIds}
         sshReady={!sshGate.requiresConnection}
         onRepoChange={(repoId) => {
           const nextRepo = repos.find((repo) => repo.id === repoId)

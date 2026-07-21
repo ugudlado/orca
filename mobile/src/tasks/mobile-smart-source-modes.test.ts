@@ -13,7 +13,8 @@ const fullyAvailable = {
   hasRepo: true,
   githubAvailable: true,
   gitlabAvailable: true,
-  linearAvailable: true
+  linearAvailable: true,
+  backlogAvailable: true
 }
 
 describe('resolveAvailableSmartModes', () => {
@@ -22,6 +23,7 @@ describe('resolveAvailableSmartModes', () => {
       'smart',
       'github',
       'linear',
+      'backlog',
       'gitlab',
       'branches',
       'text'
@@ -46,10 +48,11 @@ describe('resolveAvailableSmartModes', () => {
         githubAvailable: false,
         gitlabAvailable: false
       })
-    ).toEqual(['smart', 'linear', 'branches', 'text'])
+    ).toEqual(['smart', 'linear', 'backlog', 'branches', 'text'])
     expect(resolveAvailableSmartModes({ ...fullyAvailable, hasRepo: false })).toEqual([
       'smart',
       'linear',
+      'backlog',
       'text'
     ])
   })
