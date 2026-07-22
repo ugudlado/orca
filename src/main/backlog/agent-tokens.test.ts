@@ -138,4 +138,56 @@ describe('Backlog agent tokens', () => {
       expect.objectContaining({ method: 'POST' })
     )
   })
+
+  it('drops cache and re-mints when the cached token is revoked (401)', async () => {
+    writeUserConnection()
+    const projectId = 'project-c'
+    mkdirSync(join(tempHome, '.orca', 'backlog-project-tokens'), { recursive: true })
+    writeFileSync(projectTokenPath(projectId), 'stale-agent-token', { encoding: 'utf-8' })
+
+    netFetchMock
+      .mockResolvedValueOnce(new Response('unauthorized', { status: 401 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ token: 'remined-agent-token' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        })
+      )
+
+    const agentTokens = await loadAgentTokensModule()
+    const result = await agentTokens.ensureProjectAgentToken({
+      agentId: 'agent-1',
+      projectId
+    })
+
+    expect(result.token).toBe('remined-agent-token')
+    expect(readFileSync(projectTokenPath(projectId), 'utf-8')).toBe('remined-agent-token')
+    expect(netFetchMock).toHaveBeenCalledWith(
+      'http://localhost:6420/api/agents/agent-1/tokens',
+      expect.objectContaining({ method: 'POST' })
+    )
+  })
+
+  it('revokes remotely and clears the local cache even when the DELETE call fails', async () => {
+    writeUserConnection()
+    const projectId = 'project-d'
+    mkdirSync(join(tempHome, '.orca', 'backlog-project-tokens'), { recursive: true })
+    writeFileSync(projectTokenPath(projectId), 'agent-token-to-revoke', { encoding: 'utf-8' })
+
+    netFetchMock.mockResolvedValueOnce(new Response('server error', { status: 500 }))
+
+    const agentTokens = await loadAgentTokensModule()
+    await agentTokens.revokeProjectAgentToken({
+      agentId: 'agent-1',
+      projectId,
+      hashPrefix: 'abcd1234'
+    })
+
+    expect(netFetchMock).toHaveBeenCalledWith(
+      'http://localhost:6420/api/agents/agent-1/tokens/abcd1234',
+      expect.objectContaining({ method: 'DELETE' })
+    )
+    expect(() => readFileSync(projectTokenPath(projectId), 'utf-8')).toThrow()
+  })
 })

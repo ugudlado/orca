@@ -604,10 +604,13 @@ import {
 } from '../backlog/agent-tokens'
 import {
   getTask as getBacklogTask,
+  listProjectAssignables as listBacklogProjectAssignables,
+  listProjectStatuses as listBacklogProjectStatuses,
   listProjects as listBacklogProjects,
   listTasks as listBacklogTasks,
   updateTask as updateBacklogTask
 } from '../backlog/tasks'
+import { listTaskComments as listBacklogTaskComments } from '../backlog/backlog-task-comments'
 import {
   clearProjectItemFieldValue,
   getProjectViewTable,
@@ -25934,12 +25937,29 @@ export class OrcaRuntimeService {
     return getBacklogTask(projectId, taskId)
   }
 
+  backlogListProjectAssignables(
+    projectId: string
+  ): ReturnType<typeof listBacklogProjectAssignables> {
+    return listBacklogProjectAssignables(projectId)
+  }
+
+  backlogListProjectStatuses(projectId: string): ReturnType<typeof listBacklogProjectStatuses> {
+    return listBacklogProjectStatuses(projectId)
+  }
+
   backlogUpdateTask(
     projectId: string,
     taskId: string,
     updates: BacklogTaskUpdate
   ): ReturnType<typeof updateBacklogTask> {
     return updateBacklogTask(projectId, taskId, updates)
+  }
+
+  backlogListTaskComments(
+    projectId: string,
+    taskId: string
+  ): ReturnType<typeof listBacklogTaskComments> {
+    return listBacklogTaskComments(projectId, taskId)
   }
 
   async backlogEnsureProjectAgentToken(args: {

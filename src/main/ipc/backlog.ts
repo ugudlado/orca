@@ -5,7 +5,15 @@ import {
   ensureProjectAgentToken,
   revokeProjectAgentToken
 } from '../backlog/agent-tokens'
-import { getTask, listProjects, listTasks, updateTask } from '../backlog/tasks'
+import {
+  getTask,
+  listProjectAssignables,
+  listProjectStatuses,
+  listProjects,
+  listTasks,
+  updateTask
+} from '../backlog/tasks'
+import { listTaskComments } from '../backlog/backlog-task-comments'
 import { _resetPreflightCache } from './preflight'
 import type {
   BacklogConnectArgs,
@@ -40,6 +48,9 @@ function normalizeTaskUpdate(value: unknown): BacklogTaskUpdate | null {
   if (input.title !== undefined && typeof input.title !== 'string') {
     return null
   }
+  if (input.description !== undefined && typeof input.description !== 'string') {
+    return null
+  }
   if (input.status !== undefined && typeof input.status !== 'string') {
     return null
   }
@@ -50,28 +61,37 @@ function normalizeTaskUpdate(value: unknown): BacklogTaskUpdate | null {
   ) {
     return null
   }
-  if (input.labels !== undefined && !Array.isArray(input.labels)) {
-    return null
-  }
-  if (
-    input.milestone !== undefined &&
-    input.milestone !== null &&
-    typeof input.milestone !== 'string'
-  ) {
-    return null
-  }
-  if (
-    input.priority !== undefined &&
-    input.priority !== 'high' &&
-    input.priority !== 'medium' &&
-    input.priority !== 'low'
-  ) {
+  if (input.dueDate !== undefined && input.dueDate !== null && typeof input.dueDate !== 'string') {
     return null
   }
   return input
 }
 
+const BACKLOG_IPC_CHANNELS = [
+  'backlog:status',
+  'backlog:connect',
+  'backlog:disconnect',
+  'backlog:listProjects',
+  'backlog:listTasks',
+  'backlog:getTask',
+  'backlog:listProjectAssignables',
+  'backlog:listProjectStatuses',
+  'backlog:updateTask',
+  'backlog:listTaskComments',
+  'backlog:ensureProjectAgentToken',
+  'backlog:revokeProjectAgentToken'
+] as const
+
+function removeBacklogHandlers(): void {
+  for (const channel of BACKLOG_IPC_CHANNELS) {
+    ipcMain.removeHandler(channel)
+  }
+}
+
 export function registerBacklogHandlers(): void {
+  // Why: dev main reload and late-added channels must not leave stale ipcMain state.
+  removeBacklogHandlers()
+
   ipcMain.handle('backlog:status', async () => getStatus())
 
   ipcMain.handle('backlog:connect', async (_event, args: BacklogConnectArgs) => {
@@ -115,6 +135,22 @@ export function registerBacklogHandlers(): void {
     return getTask(projectId, taskId)
   })
 
+  ipcMain.handle('backlog:listProjectAssignables', async (_event, args: { projectId: string }) => {
+    const projectId = normalizeProjectId(args?.projectId)
+    if (!projectId) {
+      return []
+    }
+    return listProjectAssignables(projectId)
+  })
+
+  ipcMain.handle('backlog:listProjectStatuses', async (_event, args: { projectId: string }) => {
+    const projectId = normalizeProjectId(args?.projectId)
+    if (!projectId) {
+      return []
+    }
+    return listProjectStatuses(projectId)
+  })
+
   ipcMain.handle(
     'backlog:updateTask',
     async (_event, args: { projectId: string; taskId: string; updates: BacklogTaskUpdate }) => {
@@ -125,6 +161,18 @@ export function registerBacklogHandlers(): void {
         return { ok: false, error: 'Project, task, and updates are required.' }
       }
       return updateTask(projectId, taskId, updates)
+    }
+  )
+
+  ipcMain.handle(
+    'backlog:listTaskComments',
+    async (_event, args: { projectId: string; taskId: string }) => {
+      const projectId = normalizeProjectId(args?.projectId)
+      const taskId = normalizeProjectId(args?.taskId)
+      if (!projectId || !taskId) {
+        return []
+      }
+      return listTaskComments(projectId, taskId)
     }
   )
 

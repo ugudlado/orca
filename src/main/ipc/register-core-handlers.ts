@@ -115,6 +115,8 @@ export function registerCoreHandlers(
   setTrustedClipboardRendererWebContentsId(mainWindowWebContentsId)
   setTrustedUIRendererWebContentsId(mainWindowWebContentsId)
   setAgentBrowserBridgeRef(runtime.getAgentBrowserBridge())
+  // Why: preload can hot-reload with new backlog channels while main still holds an older handler set.
+  registerBacklogHandlers()
   if (registered) {
     return
   }
@@ -138,7 +140,6 @@ export function registerCoreHandlers(
   registerHostedReviewHandlers(store, stats)
   registerLinearHandlers()
   registerJiraHandlers()
-  registerBacklogHandlers()
   registerFeedbackHandlers()
   if (crashReports) {
     registerCrashReportingHandlers(crashReports)

@@ -27,12 +27,16 @@ const TaskUpdate = z.object({
   taskId: requiredString('Task ID is required'),
   updates: z.object({
     title: OptionalString,
+    description: OptionalString,
     status: OptionalString,
     assignee: z.union([z.string(), z.null()]).optional(),
-    labels: z.array(z.string()).optional(),
-    milestone: z.union([z.string(), z.null()]).optional(),
-    priority: z.enum(['high', 'medium', 'low']).optional()
+    // Why: every other Backlog field is display-only in Orca — editing stays in Backlog's own UI.
+    dueDate: z.union([z.string(), z.null()]).optional()
   })
+})
+
+const ProjectId = z.object({
+  projectId: requiredString('Project ID is required')
 })
 
 const EnsureProjectAgentToken = z.object({
@@ -85,10 +89,28 @@ export const BACKLOG_METHODS: RpcMethod[] = [
       runtime.backlogGetTask(params.projectId.trim(), params.taskId.trim())
   }),
   defineMethod({
+    name: 'backlog.listProjectAssignables',
+    params: ProjectId,
+    handler: async (params, { runtime }) =>
+      runtime.backlogListProjectAssignables(params.projectId.trim())
+  }),
+  defineMethod({
+    name: 'backlog.listProjectStatuses',
+    params: ProjectId,
+    handler: async (params, { runtime }) =>
+      runtime.backlogListProjectStatuses(params.projectId.trim())
+  }),
+  defineMethod({
     name: 'backlog.updateTask',
     params: TaskUpdate,
     handler: async (params, { runtime }) =>
       runtime.backlogUpdateTask(params.projectId.trim(), params.taskId.trim(), params.updates)
+  }),
+  defineMethod({
+    name: 'backlog.listTaskComments',
+    params: TaskId,
+    handler: async (params, { runtime }) =>
+      runtime.backlogListTaskComments(params.projectId.trim(), params.taskId.trim())
   }),
   defineMethod({
     name: 'backlog.ensureProjectAgentToken',
