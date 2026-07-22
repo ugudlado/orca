@@ -160,6 +160,7 @@ import JiraIssueWorkspace from '@/components/JiraIssueWorkspace'
 import { TaskPageJiraIssueList } from '@/components/task-page-jira-issue-list'
 import { TaskPageBacklogPanel } from '@/components/task-page-backlog-panel'
 import { launchWorkItemDirect } from '@/lib/launch-work-item-direct'
+import { resolveBacklogHostHostname } from '@/lib/backlog-launch-env'
 import { buildBacklogStartWorkTaskUpdate } from '../../../shared/backlog-start-work-update'
 import { buildBacklogWorkspaceSource } from '../../../shared/new-workspace/workspace-source'
 import {
@@ -3108,6 +3109,9 @@ export default function TaskPage(): React.JSX.Element {
   const listBacklogProjects = useAppStore((s) => s.listBacklogProjects)
   const listBacklogTasks = useAppStore((s) => s.listBacklogTasks)
   const updateBacklogTask = useAppStore((s) => s.updateBacklogTask)
+  const listBacklogProjectAssignables = useAppStore((s) => s.listBacklogProjectAssignables)
+  const listBacklogProjectStatuses = useAppStore((s) => s.listBacklogProjectStatuses)
+  const listBacklogTaskComments = useAppStore((s) => s.listBacklogTaskComments)
   const providerRuntimeContextKey = getProviderRuntimeContextKey(settings)
   const providerRuntimeContextKeyRef = useRef(providerRuntimeContextKey)
   providerRuntimeContextKeyRef.current = providerRuntimeContextKey
@@ -7961,9 +7965,7 @@ export default function TaskPage(): React.JSX.Element {
         if (!launched) {
           return
         }
-        const assigneeUpdate = buildBacklogStartWorkTaskUpdate(
-          useAppStore.getState().backlogStatus.hostHostname ?? window.api.platform.get().hostname
-        )
+        const assigneeUpdate = buildBacklogStartWorkTaskUpdate(resolveBacklogHostHostname())
         const result = await updateBacklogTask(task.projectId, task.id, assigneeUpdate)
         if (!result.ok) {
           toast.error(result.error)
@@ -9858,6 +9860,10 @@ export default function TaskPage(): React.JSX.Element {
               onUse={handleUseBacklogTask}
               listProjects={listBacklogProjects}
               listTasks={listBacklogTasks}
+              updateTask={updateBacklogTask}
+              listAssignables={listBacklogProjectAssignables}
+              listStatuses={listBacklogProjectStatuses}
+              listComments={listBacklogTaskComments}
               checkConnection={checkBacklogConnection}
               onHideSource={() => hideTaskSource('backlog', 'Backlog')}
             />
