@@ -27,8 +27,10 @@ import { takeCurrentPtyDeliveryAckCredit } from './terminal-pty-ack-gate'
 import { serializeWithAbsoluteCursor } from '../../../../shared/terminal-serialize-absolute-cursor'
 import { isTerminalQueryReply } from '../../../../shared/terminal-query-reply'
 import type { PtyBufferSnapshot, PtyConnectResult } from './pty-transport'
+import type { PtyTransportRecoveryState } from './pty-transport-types'
 import { createIpcPtyTransport } from './pty-transport'
 import { createRemoteRuntimePtyTransport } from './remote-runtime-pty-transport'
+import { toAgentLaunchPreferences } from '@/runtime/agent-session-create-operation'
 import { getConnectionId } from '@/lib/connection-context'
 import { getLocalProjectExecutionRuntimeContext } from '@/lib/local-preflight-context'
 import {
@@ -235,6 +237,7 @@ import {
   agentProviderSessionsEqual,
   isResumableTuiAgent,
   normalizeAgentProviderSession,
+  type AgentProviderSessionMetadata,
   type ResumableTuiAgent,
   type SleepingAgentSessionRecord
 } from '../../../../shared/agent-session-resume'
@@ -481,6 +484,7 @@ type FreshSpawnOptions = {
 
 type ColdRestoreAgentResumeStartup = PendingStartupCommand & {
   agent: ResumableTuiAgent
+  resumeProviderSession: AgentProviderSessionMetadata
   launchConfig: NonNullable<ReturnType<typeof buildAgentResumeStartupPlan>>['launchConfig']
   launchToken: string
   useLiveEntry: boolean
@@ -625,6 +629,7 @@ let inactiveForegroundImmediateBudgetWindowStart = 0
 type PanePtyBinding = IDisposable & {
   syncProcessTracking: () => void
   noteVisibilityResume: () => void
+  reassertPtySizeAfterWindowWake: () => void
   /** Navigation-free hibernation wake: fires the armed cold-restore --resume
    *  without the size-reassert/foreground-sample side effects of a real reveal.
    *  Used by the mobile wake fanout so a hidden hibernated pane resumes with no
@@ -2230,6 +2235,7 @@ export function connectPanePty(
     activePanePtyBinding = null
     activePanePtyBindingBoundAt = null
     delete pane.container.dataset.ptyId
+    delete pane.container.dataset.ptyRecoveryState
   }
 
   const agentCompletionCoordinator = createAgentCompletionCoordinator({
@@ -3322,6 +3328,7 @@ export function connectPanePty(
   const terminalColorQueryReplies = terminalTheme
     ? { foreground: terminalTheme.foreground, background: terminalTheme.background }
     : undefined
+  const agentLaunchPreferences = toAgentLaunchPreferences(paneStartup?.sessionOptions)
   const transportOptions = {
     cwd: deps.cwd,
     // Why: only fresh local IPC spawns may recover from a saved startup cwd
@@ -3329,6 +3336,7 @@ export function connectPanePty(
     // resolve cwd on another host and must keep exact cwd semantics.
     ...(runtimeEnvironmentId === null && !connectionId ? { cwdFallback: 'worktree' as const } : {}),
     env: paneEnv,
+    ...(paneStartup?.envToDelete ? { envToDelete: paneStartup.envToDelete } : {}),
     command: shouldDeliverStartupViaTerminalPaste ? undefined : paneStartup?.command,
     startupCommandDelivery: shouldDeliverStartupViaTerminalPaste
       ? undefined
@@ -3346,6 +3354,21 @@ export function connectPanePty(
     ...(projectRuntime ? { projectRuntime } : {}),
     ...(terminalColorQueryReplies ? { terminalColorQueryReplies } : {}),
     ...(paneStartup?.launchConfig ? { launchConfig: paneStartup.launchConfig } : {}),
+    ...(paneStartup?.resumeProviderSession
+      ? { resumeProviderSession: paneStartup.resumeProviderSession }
+      : {}),
+    ...((paneStartup?.initialAgentStatus?.prompt ?? paneStartup?.draftPrompt)
+      ? { agentPrompt: paneStartup?.initialAgentStatus?.prompt ?? paneStartup?.draftPrompt }
+      : {}),
+    ...(paneStartup?.initialAgentStatus?.prompt
+      ? { agentPromptDelivery: 'auto-submit' as const }
+      : paneStartup?.draftPrompt
+        ? { agentPromptDelivery: 'draft' as const }
+        : {}),
+    ...(paneStartup?.agentArgsOverride !== undefined
+      ? { agentArgsOverride: paneStartup.agentArgsOverride }
+      : {}),
+    ...(agentLaunchPreferences ? { agentLaunchPreferences } : {}),
     ...(launchToken ? { launchToken } : {}),
     ...(paneStartup?.launchAgent ? { launchAgent: paneStartup.launchAgent } : {}),
     ...(paneStartup?.telemetry ? { telemetry: paneStartup.telemetry } : {}),
@@ -4485,6 +4508,7 @@ export function connectPanePty(
           ORCA_AGENT_LAUNCH_TOKEN: coldRestoreLaunchToken
         },
         launchConfig: startupPlan.launchConfig,
+        resumeProviderSession: providerSession,
         launchToken: coldRestoreLaunchToken,
         useLiveEntry: Boolean(useLiveEntry),
         hasSleepingRecord: Boolean(sleepingRecord),
@@ -4698,6 +4722,9 @@ export function connectPanePty(
           ? { env: mergeStartupEnvWithPaneIdentity(startupOverride.env) }
           : {}),
         ...(coldRestoreOverride ? { launchConfig: coldRestoreOverride.launchConfig } : {}),
+        ...(coldRestoreOverride
+          ? { resumeProviderSession: coldRestoreOverride.resumeProviderSession }
+          : {}),
         ...(coldRestoreOverride ? { launchToken: coldRestoreOverride.launchToken } : {}),
         ...(coldRestoreOverride ? { launchAgent: coldRestoreOverride.agent } : {}),
         ...(shouldDeclareHiddenAtSpawn() ? { initiallyHidden: true } : {}),
@@ -5216,6 +5243,13 @@ export function connectPanePty(
           onError: (message: string): void => {
             if (isCurrent()) {
               onError(message)
+            }
+          },
+          onRecoveryStateChange: (state: PtyTransportRecoveryState): void => {
+            if (isCurrent()) {
+              // Why: cached pixels remain visible while detached; expose transport truth for diagnostics and recovery UI.
+              pane.container.dataset.ptyRecoveryState = state.phase
+              deps.onPtyRecoveryStateRef?.current?.(pane.id, state)
             }
           }
         }
@@ -7550,6 +7584,9 @@ export function connectPanePty(
               ...(coldRestoreStartup?.launchConfig
                 ? { launchConfig: coldRestoreStartup.launchConfig }
                 : {}),
+              ...(coldRestoreStartup?.resumeProviderSession
+                ? { resumeProviderSession: coldRestoreStartup.resumeProviderSession }
+                : {}),
               ...(coldRestoreStartup?.launchToken
                 ? { launchToken: coldRestoreStartup.launchToken }
                 : {}),
@@ -7760,6 +7797,9 @@ export function connectPanePty(
           : {}),
         ...(coldRestoreStartup?.launchConfig
           ? { launchConfig: coldRestoreStartup.launchConfig }
+          : {}),
+        ...(coldRestoreStartup?.resumeProviderSession
+          ? { resumeProviderSession: coldRestoreStartup.resumeProviderSession }
           : {}),
         ...(coldRestoreStartup?.launchToken ? { launchToken: coldRestoreStartup.launchToken } : {}),
         ...(coldRestoreStartup?.agent ? { launchAgent: coldRestoreStartup.agent } : {}),
@@ -8035,6 +8075,9 @@ export function connectPanePty(
       consumeHibernatedAgentWake()
       requestKnownDroidReconfirmation()
       sampleVisiblePaneForegroundAgent()
+    },
+    reassertPtySizeAfterWindowWake() {
+      ptySizeReassertion.request({ fit: false })
     },
     // Why: mobile wake reaches this pane while it's hidden on the desktop, so consume only the armed hibernation wake — no size/foreground reads.
     wakeHibernatedAgentIfArmed(claimedProviderSessions) {

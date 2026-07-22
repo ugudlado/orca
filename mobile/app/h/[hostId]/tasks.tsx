@@ -77,6 +77,15 @@ import {
   type GitHubRepoSlugCacheEntry
 } from '../../../src/tasks/github-project-repo-match'
 import {
+  parseGitHubProjectInput as parseProjectInput,
+  type GitHubProjectOwnerType,
+  type GitHubProjectPartialFailure,
+  type GitHubProjectRef,
+  type GitHubProjectSettings,
+  type GitHubProjectSummary,
+  type GitHubProjectViewSummary
+} from '../../../src/tasks/github-project-reference'
+import {
   extractGitHubIssueSourceFallback,
   extractGitHubIssueSourceError,
   type GitHubIssueSourceFallback,
@@ -157,8 +166,6 @@ import {
 } from '../../../src/tasks/mobile-tasks-screen-format'
 import {
   canCreateWorkspaceFromProjectRow,
-  githubProjectKey,
-  parseGitHubProjectInput,
   projectRowType,
   splitRepositorySlug
 } from '../../../src/tasks/mobile-github-project-input'
@@ -188,11 +195,16 @@ import {
 } from '../../../src/tasks/mobile-task-copy-feedback-timer'
 import type {
   BaseRefSearchResult,
+  GitHubOwnerRepo,
   PersistedTrustedOrcaHooks,
   SparsePreset,
   TuiAgent
 } from '../../../../src/shared/types'
 import type { SshConnectionState } from '../../../../src/shared/ssh-types'
+import {
+  githubProjectHost,
+  githubProjectIdentityKey as githubProjectKey
+} from '../../../../src/shared/github-project-identity'
 
 type RepoSummary = {
   id: string
@@ -205,11 +217,6 @@ type RepoSummary = {
 }
 
 type IssueSourcePreference = 'upstream' | 'origin' | 'auto'
-
-type GitHubOwnerRepo = {
-  owner: string
-  repo: string
-}
 
 type GitHubWorkItem = {
   id: string
@@ -502,34 +509,6 @@ type LinearStatusResponse = {
   activeWorkspaceId?: string | null
 }
 
-type GitHubProjectOwnerType = 'organization' | 'user'
-type GitHubProjectRef = {
-  owner: string
-  ownerType: GitHubProjectOwnerType
-  number: number
-}
-type GitHubProjectSettings = {
-  pinned: GitHubProjectRef[]
-  recent: Array<GitHubProjectRef & { lastOpenedAt: string }>
-  lastViewByProject: Record<string, { viewId: string }>
-  activeProject: GitHubProjectRef | null
-}
-type GitHubProjectSummary = GitHubProjectRef & {
-  id: string
-  title: string
-  url: string
-  source: string
-}
-type GitHubProjectPartialFailure = {
-  owner: string
-  message: string
-}
-type GitHubProjectViewSummary = {
-  id: string
-  number: number
-  name: string
-  layout: 'TABLE_LAYOUT' | 'BOARD_LAYOUT' | 'ROADMAP_LAYOUT'
-}
 type GitHubIssueType = {
   id: string
   name: string
@@ -824,6 +803,11 @@ const EMPTY_GITHUB_PROJECT_SETTINGS: GitHubProjectSettings = {
   recent: [],
   lastViewByProject: {},
   activeProject: null
+}
+
+function projectRowGitHubRepository(row: GitHubProjectRow, host: string): GitHubOwnerRepo | null {
+  const slug = splitRepositorySlug(row.content.repository)
+  return slug ? { ...slug, host } : null
 }
 
 const GITHUB_PROJECT_OPTION_COLORS: Record<string, string> = {
@@ -2322,6 +2306,10 @@ export default function MobileTasksScreen() {
     setProvider,
     setVisibleProviders
   })
+  const activeGitHubProject = githubProjectSettings.activeProject
+  const activeGitHubProjectHost = githubProjectHost(
+    githubProjectTable?.project.host ?? activeGitHubProject?.host
+  )
   const hostedRepos = useMemo(() => repos.filter(isHostedTaskRepo), [repos])
   const workspaceRepos = useMemo(() => repos.filter((repo) => repo.kind !== 'folder'), [repos])
   const reposById = useMemo(() => new Map(repos.map((repo) => [repo.id, repo])), [repos])
@@ -2337,9 +2325,10 @@ export default function MobileTasksScreen() {
       findRepoForGitHubProjectRepository(
         row.content.repository,
         hostedRepos,
-        githubRepoSlugCache
+        githubRepoSlugCache,
+        activeGitHubProjectHost
       ) as RepoSummary | null,
-    [githubRepoSlugCache, hostedRepos]
+    [activeGitHubProjectHost, githubRepoSlugCache, hostedRepos]
   )
   const githubProjectRepoSlugReady = useMemo(
     () =>
@@ -2355,10 +2344,11 @@ export default function MobileTasksScreen() {
         ? (filterGitHubProjectRowsForRepos(
             githubProjectTable.rows,
             hostedRepos,
-            githubRepoSlugCache
+            githubRepoSlugCache,
+            activeGitHubProjectHost
           ) as GitHubProjectRow[])
         : [],
-    [githubProjectTable, githubRepoSlugCache, hostedRepos]
+    [activeGitHubProjectHost, githubProjectTable, githubRepoSlugCache, hostedRepos]
   )
   const visibleGitHubProjectGroups = useMemo<ProjectGroup[]>(() => {
     if (!githubProjectTable) {
@@ -2453,10 +2443,10 @@ export default function MobileTasksScreen() {
         return {
           repoId: repo.id,
           path: repo.path,
-          slug: result ? `${result.owner}/${result.repo}` : null
+          repository: result
         }
       } catch {
-        return { repoId: repo.id, path: repo.path, slug: null }
+        return { repoId: repo.id, path: repo.path, repository: null }
       }
     }).then((entries) => {
       if (cancelled) {
@@ -2465,7 +2455,7 @@ export default function MobileTasksScreen() {
       setGithubRepoSlugCache((current) => {
         const next = { ...current }
         for (const entry of entries) {
-          next[entry.repoId] = { path: entry.path, slug: entry.slug }
+          next[entry.repoId] = { path: entry.path, repository: entry.repository }
         }
         return next
       })
@@ -2484,7 +2474,6 @@ export default function MobileTasksScreen() {
     taskStateHydrated,
     tasksSupported
   ])
-  const activeGitHubProject = githubProjectSettings.activeProject
   const activeGitHubProjectKey = activeGitHubProject ? githubProjectKey(activeGitHubProject) : null
   const activeGitHubProjectViewId = activeGitHubProjectKey
     ? githubProjectSettings.lastViewByProject[activeGitHubProjectKey]?.viewId
@@ -3633,7 +3622,9 @@ export default function MobileTasksScreen() {
     }
     setGithubProjectError('')
     setGithubProjectPartialFailures([])
-    const response = await client.sendRequest('github.project.listAccessible', {})
+    const response = await client.sendRequest('github.project.listAccessible', {
+      host: 'github.com'
+    })
     if (!isMobileTasksRpcSuccess(response)) {
       throw new Error(response.error.message)
     }
@@ -3658,6 +3649,7 @@ export default function MobileTasksScreen() {
       }
       const response = await client.sendRequest('github.project.listViews', {
         owner: project.owner,
+        host: githubProjectHost(project.host),
         ownerType: project.ownerType,
         projectNumber: project.number
       })
@@ -3695,6 +3687,7 @@ export default function MobileTasksScreen() {
           'github.project.viewTable',
           {
             owner: activeGitHubProject.owner,
+            host: activeGitHubProjectHost,
             ownerType: activeGitHubProject.ownerType,
             projectNumber: activeGitHubProject.number,
             viewId: activeGitHubProjectViewId,
@@ -3733,7 +3726,14 @@ export default function MobileTasksScreen() {
         setGithubProjectLoading(false)
       }
     },
-    [activeGitHubProject, activeGitHubProjectViewId, client, connState, tasksSupported]
+    [
+      activeGitHubProject,
+      activeGitHubProjectHost,
+      activeGitHubProjectViewId,
+      client,
+      connState,
+      tasksSupported
+    ]
   )
 
   const commitGitHubProjectView = useCallback(
@@ -3827,7 +3827,8 @@ export default function MobileTasksScreen() {
       return
     }
     const input = githubProjectPasteInput.trim()
-    if (!parseGitHubProjectInput(input)) {
+    const parsed = parseProjectInput(input)
+    if (!parsed) {
       setGithubProjectPasteError('Expected a project URL or owner/number.')
       return
     }
@@ -3835,7 +3836,10 @@ export default function MobileTasksScreen() {
     setGithubProjectPasteError('')
     setGithubProjectError('')
     try {
-      const response = await client.sendRequest('github.project.resolveRef', { input })
+      const response = await client.sendRequest('github.project.resolveRef', {
+        input,
+        host: githubProjectHost(parsed.host)
+      })
       if (!isMobileTasksRpcSuccess(response)) {
         throw new Error(response.error.message)
       }
@@ -3846,6 +3850,7 @@ export default function MobileTasksScreen() {
             ownerType: GitHubProjectOwnerType
             number: number
             title: string
+            host?: string
             viewNumber?: number
           }
         | { ok: false; error: { message: string } }
@@ -3859,7 +3864,8 @@ export default function MobileTasksScreen() {
         {
           owner: result.owner,
           ownerType: result.ownerType,
-          number: result.number
+          number: result.number,
+          host: githubProjectHost(result.host ?? parsed.host)
         },
         { viewNumber: result.viewNumber }
       )
@@ -4447,6 +4453,7 @@ export default function MobileTasksScreen() {
         {
           owner: slug.owner,
           repo: slug.repo,
+          host: activeGitHubProjectHost,
           number: projectRowItem.content.number,
           type
         },
@@ -4521,7 +4528,14 @@ export default function MobileTasksScreen() {
     return () => {
       stale = true
     }
-  }, [client, githubProjectTable, projectRowDetailRefreshSeq, projectRowItem, tasksSupported])
+  }, [
+    activeGitHubProjectHost,
+    client,
+    githubProjectTable,
+    projectRowDetailRefreshSeq,
+    projectRowItem,
+    tasksSupported
+  ])
 
   useEffect(() => {
     const slug = splitRepositorySlug(projectMetadataRepository)
@@ -4539,7 +4553,7 @@ export default function MobileTasksScreen() {
     void client
       .sendRequest(
         'github.project.listLabelsBySlug',
-        { owner: slug.owner, repo: slug.repo },
+        { owner: slug.owner, repo: slug.repo, host: activeGitHubProjectHost },
         { timeoutMs: 30_000 }
       )
       .then((response) => {
@@ -4571,7 +4585,7 @@ export default function MobileTasksScreen() {
     return () => {
       stale = true
     }
-  }, [client, projectMetadataRepository, tasksSupported])
+  }, [activeGitHubProjectHost, client, projectMetadataRepository, tasksSupported])
 
   useEffect(() => {
     const slug = splitRepositorySlug(projectMetadataRepository)
@@ -4592,6 +4606,7 @@ export default function MobileTasksScreen() {
         {
           owner: slug.owner,
           repo: slug.repo,
+          host: activeGitHubProjectHost,
           ...(projectMetadataSeedLogins ? { seedLogins: projectMetadataSeedLogins.split(',') } : {})
         },
         { timeoutMs: 30_000 }
@@ -4627,7 +4642,13 @@ export default function MobileTasksScreen() {
     return () => {
       stale = true
     }
-  }, [client, projectMetadataRepository, projectMetadataSeedLogins, tasksSupported])
+  }, [
+    activeGitHubProjectHost,
+    client,
+    projectMetadataRepository,
+    projectMetadataSeedLogins,
+    tasksSupported
+  ])
 
   useEffect(() => {
     const slug = splitRepositorySlug(projectIssueTypeRepository)
@@ -4645,7 +4666,7 @@ export default function MobileTasksScreen() {
     void client
       .sendRequest(
         'github.project.listIssueTypesBySlug',
-        { owner: slug.owner, repo: slug.repo },
+        { owner: slug.owner, repo: slug.repo, host: activeGitHubProjectHost },
         { timeoutMs: 30_000 }
       )
       .then((response) => {
@@ -4679,7 +4700,7 @@ export default function MobileTasksScreen() {
     return () => {
       stale = true
     }
-  }, [client, projectIssueTypeRepository, tasksSupported])
+  }, [activeGitHubProjectHost, client, projectIssueTypeRepository, tasksSupported])
 
   const getWorkspaceTargetRepo = useCallback(
     (item: ActionableTaskItem, repoIdOverride?: string): RepoSummary | null => {
@@ -5668,6 +5689,7 @@ export default function MobileTasksScreen() {
           {
             owner: slug.owner,
             repo: slug.repo,
+            host: activeGitHubProjectHost,
             number: row.content.number,
             updates
           },
@@ -5729,7 +5751,7 @@ export default function MobileTasksScreen() {
         setProjectMutating(false)
       }
     },
-    [client, projectMutating]
+    [activeGitHubProjectHost, client, projectMutating]
   )
 
   const addProjectRowComment = useCallback(
@@ -5749,6 +5771,7 @@ export default function MobileTasksScreen() {
           {
             owner: slug.owner,
             repo: slug.repo,
+            host: activeGitHubProjectHost,
             number: row.content.number,
             body
           },
@@ -5777,7 +5800,7 @@ export default function MobileTasksScreen() {
         setProjectMutating(false)
       }
     },
-    [client, projectCommentDraft, projectMutating]
+    [activeGitHubProjectHost, client, projectCommentDraft, projectMutating]
   )
 
   const updateProjectRowComment = useCallback(
@@ -5800,6 +5823,7 @@ export default function MobileTasksScreen() {
           {
             owner: slug.owner,
             repo: slug.repo,
+            host: activeGitHubProjectHost,
             commentId,
             body
           },
@@ -5837,7 +5861,7 @@ export default function MobileTasksScreen() {
         setProjectMutating(false)
       }
     },
-    [client, projectEditingCommentDraft, projectMutating]
+    [activeGitHubProjectHost, client, projectEditingCommentDraft, projectMutating]
   )
 
   const deleteProjectRowComment = useCallback(
@@ -5859,6 +5883,7 @@ export default function MobileTasksScreen() {
           {
             owner: slug.owner,
             repo: slug.repo,
+            host: activeGitHubProjectHost,
             commentId
           },
           { timeoutMs: 30_000 }
@@ -5895,7 +5920,7 @@ export default function MobileTasksScreen() {
         setProjectMutating(false)
       }
     },
-    [client, projectEditingCommentId, projectMutating]
+    [activeGitHubProjectHost, client, projectEditingCommentId, projectMutating]
   )
 
   const toggleProjectGitHubReviewThread = useCallback(
@@ -5918,6 +5943,7 @@ export default function MobileTasksScreen() {
           'github.resolveReviewThread',
           {
             repo: `id:${repo.id}`,
+            prRepo: projectRowGitHubRepository(row, activeGitHubProjectHost),
             threadId: comment.threadId,
             resolve
           },
@@ -5949,7 +5975,7 @@ export default function MobileTasksScreen() {
         setProjectMutating(false)
       }
     },
-    [client, findProjectRowRepo, projectMutating]
+    [activeGitHubProjectHost, client, findProjectRowRepo, projectMutating]
   )
 
   const replyToProjectGitHubComment = useCallback(
@@ -5977,6 +6003,7 @@ export default function MobileTasksScreen() {
               {
                 repo: `id:${repo.id}`,
                 prNumber: row.content.number,
+                prRepo: projectRowGitHubRepository(row, activeGitHubProjectHost),
                 commentId: comment.id,
                 body,
                 threadId: comment.threadId,
@@ -5990,6 +6017,7 @@ export default function MobileTasksScreen() {
               {
                 repo: `id:${repo.id}`,
                 number: row.content.number,
+                prRepo: projectRowGitHubRepository(row, activeGitHubProjectHost),
                 body: `@${commentAuthor(comment)} ${body}`,
                 type: projectRowType(row) ?? 'issue'
               },
@@ -6031,7 +6059,7 @@ export default function MobileTasksScreen() {
         setProjectMutating(false)
       }
     },
-    [client, findProjectRowRepo, itemReplyDrafts, projectMutating]
+    [activeGitHubProjectHost, client, findProjectRowRepo, itemReplyDrafts, projectMutating]
   )
 
   const mutateProjectRowMetadata = useCallback(
@@ -6059,6 +6087,7 @@ export default function MobileTasksScreen() {
           {
             owner: slug.owner,
             repo: slug.repo,
+            host: activeGitHubProjectHost,
             number: row.content.number,
             updates
           },
@@ -6143,7 +6172,7 @@ export default function MobileTasksScreen() {
         setProjectMutating(false)
       }
     },
-    [client, projectMutating]
+    [activeGitHubProjectHost, client, projectMutating]
   )
 
   const mutateProjectRowField = useCallback(
@@ -6162,11 +6191,13 @@ export default function MobileTasksScreen() {
           value === null
             ? {
                 projectId: githubProjectTable.project.id,
+                host: activeGitHubProjectHost,
                 itemId: row.id,
                 fieldId: field.id
               }
             : {
                 projectId: githubProjectTable.project.id,
+                host: activeGitHubProjectHost,
                 itemId: row.id,
                 fieldId: field.id,
                 value
@@ -6213,7 +6244,7 @@ export default function MobileTasksScreen() {
         setProjectMutating(false)
       }
     },
-    [client, githubProjectTable, projectMutating]
+    [activeGitHubProjectHost, client, githubProjectTable, projectMutating]
   )
 
   const mutateProjectRowIssueType = useCallback(
@@ -6233,6 +6264,7 @@ export default function MobileTasksScreen() {
           {
             owner: slug.owner,
             repo: slug.repo,
+            host: activeGitHubProjectHost,
             number: row.content.number,
             issueTypeId: issueType?.id ?? null
           },
@@ -6268,7 +6300,7 @@ export default function MobileTasksScreen() {
         setProjectMutating(false)
       }
     },
-    [client, projectMutating]
+    [activeGitHubProjectHost, client, projectMutating]
   )
 
   const requestProjectGitHubReviewers = useCallback(
@@ -6289,6 +6321,7 @@ export default function MobileTasksScreen() {
           {
             repo: `id:${repo.id}`,
             prNumber: row.content.number,
+            prRepo: projectRowGitHubRepository(row, activeGitHubProjectHost),
             reviewers
           },
           { timeoutMs: 30_000 }
@@ -6336,7 +6369,14 @@ export default function MobileTasksScreen() {
         setProjectMutating(false)
       }
     },
-    [client, findProjectRowRepo, projectMutating, projectReviewersDraft, projectRowDetail]
+    [
+      activeGitHubProjectHost,
+      client,
+      findProjectRowRepo,
+      projectMutating,
+      projectReviewersDraft,
+      projectRowDetail
+    ]
   )
 
   const refreshProjectGitHubChecks = useCallback(
@@ -6359,6 +6399,7 @@ export default function MobileTasksScreen() {
           {
             repo: `id:${repo.id}`,
             prNumber: row.content.number,
+            prRepo: projectRowGitHubRepository(row, activeGitHubProjectHost),
             headSha: projectRowDetail?.provider === 'github' ? projectRowDetail.headSha : undefined,
             noCache: true
           },
@@ -6380,7 +6421,7 @@ export default function MobileTasksScreen() {
         setProjectMutating(false)
       }
     },
-    [client, findProjectRowRepo, projectMutating, projectRowDetail]
+    [activeGitHubProjectHost, client, findProjectRowRepo, projectMutating, projectRowDetail]
   )
 
   const rerunProjectGitHubChecks = useCallback(
@@ -6403,6 +6444,7 @@ export default function MobileTasksScreen() {
           {
             repo: `id:${repo.id}`,
             prNumber: row.content.number,
+            prRepo: projectRowGitHubRepository(row, activeGitHubProjectHost),
             headSha: projectRowDetail?.provider === 'github' ? projectRowDetail.headSha : undefined,
             failedOnly
           },
@@ -6422,7 +6464,7 @@ export default function MobileTasksScreen() {
         setProjectMutating(false)
       }
     },
-    [client, findProjectRowRepo, projectMutating, projectRowDetail]
+    [activeGitHubProjectHost, client, findProjectRowRepo, projectMutating, projectRowDetail]
   )
 
   const toggleProjectGitHubFileViewed = useCallback(
@@ -6443,6 +6485,7 @@ export default function MobileTasksScreen() {
           'github.setPRFileViewed',
           {
             repo: `id:${repo.id}`,
+            prRepo: projectRowGitHubRepository(row, activeGitHubProjectHost),
             pullRequestId: projectRowDetail.pullRequestId,
             path: file.path,
             viewed
@@ -6475,7 +6518,7 @@ export default function MobileTasksScreen() {
         setProjectMutating(false)
       }
     },
-    [client, findProjectRowRepo, projectMutating, projectRowDetail]
+    [activeGitHubProjectHost, client, findProjectRowRepo, projectMutating, projectRowDetail]
   )
 
   const toggleProjectGitHubFileExpansion = useCallback(
@@ -6509,6 +6552,7 @@ export default function MobileTasksScreen() {
           {
             repo: `id:${repo.id}`,
             prNumber: row.content.number,
+            prRepo: projectRowGitHubRepository(row, activeGitHubProjectHost),
             path: file.path,
             oldPath: file.oldPath,
             status: file.status ?? 'modified',
@@ -6532,7 +6576,14 @@ export default function MobileTasksScreen() {
         setPrFileLoadingPath(null)
       }
     },
-    [client, expandedPrFilePath, findProjectRowRepo, prFileContents, projectRowDetail]
+    [
+      activeGitHubProjectHost,
+      client,
+      expandedPrFilePath,
+      findProjectRowRepo,
+      prFileContents,
+      projectRowDetail
+    ]
   )
 
   const addProjectGitHubFileReviewComment = useCallback(
@@ -6564,6 +6615,7 @@ export default function MobileTasksScreen() {
           {
             repo: `id:${repo.id}`,
             prNumber: row.content.number,
+            prRepo: projectRowGitHubRepository(row, activeGitHubProjectHost),
             commitId: projectRowDetail.headSha,
             path: file.path,
             line,
@@ -6608,7 +6660,14 @@ export default function MobileTasksScreen() {
         setProjectMutating(false)
       }
     },
-    [client, findProjectRowRepo, prFileCommentDrafts, projectMutating, projectRowDetail]
+    [
+      activeGitHubProjectHost,
+      client,
+      findProjectRowRepo,
+      prFileCommentDrafts,
+      projectMutating,
+      projectRowDetail
+    ]
   )
 
   const mergeProjectGitHubPullRequest = useCallback(
@@ -6634,6 +6693,7 @@ export default function MobileTasksScreen() {
           {
             repo: `id:${repo.id}`,
             prNumber: row.content.number,
+            prRepo: projectRowGitHubRepository(row, activeGitHubProjectHost),
             method
           },
           { timeoutMs: 60_000 }
@@ -6670,7 +6730,7 @@ export default function MobileTasksScreen() {
         setProjectMutating(false)
       }
     },
-    [client, findProjectRowRepo, projectMutating]
+    [activeGitHubProjectHost, client, findProjectRowRepo, projectMutating]
   )
 
   const toggleGitHubStatus = useCallback(
