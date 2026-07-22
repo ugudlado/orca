@@ -29,6 +29,18 @@ export type BacklogTaskAssignee = {
   name: string
 }
 
+export type BacklogAcceptanceCriterionItem = {
+  index: number
+  text: string
+  checked: boolean
+}
+
+export type BacklogSubtaskSummary = {
+  id: string
+  title: string
+}
+
+/** Backlog task fields Orca displays but never edits (editing stays in Backlog's own UI). */
 export type BacklogTask = {
   id: string
   projectId: string
@@ -39,23 +51,48 @@ export type BacklogTask = {
   assignee: BacklogTaskAssignee | null
   labels: string[]
   milestone?: string
-  priority?: 'high' | 'medium' | 'low'
+  priority?: 'urgent' | 'high' | 'medium' | 'low'
+  epic?: string
+  dueDate?: string
+  blocked?: boolean
+  dependencies: string[]
+  acceptanceCriteriaItems: BacklogAcceptanceCriterionItem[]
+  implementationNotes?: string
+  documentation: string[]
+  commentCount: number
   createdAt?: string
   updatedAt?: string
+  parentTaskId?: string
+  parentTaskTitle?: string
+  subtaskSummaries: BacklogSubtaskSummary[]
 }
 
 export type BacklogTaskUpdate = {
   title?: string
+  /** Maps to Backlog HTTP `description` field. */
+  description?: string
   status?: string
   assignee?: string | null
-  labels?: string[]
-  milestone?: string | null
-  priority?: 'high' | 'medium' | 'low'
+  /** Due date only — every other new display field is read-only in Orca; edit it in Backlog. */
+  dueDate?: string | null
+}
+
+export type BacklogTaskComment = {
+  id: string
+  ts: string
+  body: string
+  authorName: string | null
 }
 
 export type BacklogTaskFilter = {
   status?: string
   assignee?: string
+}
+
+export type BacklogAssignable = {
+  id: string
+  name: string
+  kind: 'user' | 'agent'
 }
 
 export type BacklogConnectArgs = {

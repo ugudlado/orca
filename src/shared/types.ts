@@ -1942,8 +1942,12 @@ export type {
   BacklogMutationResult,
   BacklogProject,
   BacklogProjectTokenMeta,
+  BacklogAssignable,
+  BacklogAcceptanceCriterionItem,
+  BacklogSubtaskSummary,
   BacklogTask,
   BacklogTaskAssignee,
+  BacklogTaskComment,
   BacklogTaskFilter,
   BacklogTaskUpdate,
   BacklogViewer
