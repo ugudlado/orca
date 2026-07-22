@@ -153,7 +153,9 @@ import type {
   BacklogConnectionStatus,
   BacklogMutationResult,
   BacklogProject,
+  BacklogAssignable,
   BacklogTask,
+  BacklogTaskComment,
   BacklogTaskFilter,
   BacklogTaskUpdate,
   LinearViewer,
@@ -989,7 +991,6 @@ export type PreloadApi = {
   platform: {
     get: () => {
       platform: NodeJS.Platform
-      hostname: string
       osRelease: string
       displayServer: 'wayland' | 'x11' | null
     }
@@ -2079,11 +2080,14 @@ export type PreloadApi = {
     listProjects: () => Promise<BacklogProject[]>
     listTasks: (args: { projectId: string; filter?: BacklogTaskFilter }) => Promise<BacklogTask[]>
     getTask: (args: { projectId: string; taskId: string }) => Promise<BacklogTask | null>
+    listProjectAssignables: (args: { projectId: string }) => Promise<BacklogAssignable[]>
+    listProjectStatuses: (args: { projectId: string }) => Promise<string[]>
     updateTask: (args: {
       projectId: string
       taskId: string
       updates: BacklogTaskUpdate
     }) => Promise<BacklogMutationResult>
+    listTaskComments: (args: { projectId: string; taskId: string }) => Promise<BacklogTaskComment[]>
     ensureProjectAgentToken: (args: {
       projectId: string
       agentName: string

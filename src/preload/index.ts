@@ -1,6 +1,5 @@
 /* eslint-disable max-lines -- Why: preload is the audited renderer/Electron IPC contract; co-locating the surface eases security and type-drift review. */
 import { contextBridge, ipcRenderer, webFrame, webUtils } from 'electron'
-import { hostname } from 'node:os'
 import { electronAPI } from '@electron-toolkit/preload'
 import { preloadE2EConfig } from './e2e-config'
 import { glApi } from './gitlab'
@@ -483,7 +482,6 @@ const api = {
   platform: {
     get: () => ({
       platform: process.platform,
-      hostname: hostname() || 'local',
       osRelease:
         (process as NodeJS.Process & { getSystemVersion?: () => string }).getSystemVersion?.() ??
         '',
@@ -1766,12 +1764,21 @@ const api = {
     getTask: (args: { projectId: string; taskId: string }): Promise<unknown> =>
       ipcRenderer.invoke('backlog:getTask', args),
 
+    listProjectAssignables: (args: { projectId: string }): Promise<unknown[]> =>
+      ipcRenderer.invoke('backlog:listProjectAssignables', args),
+
+    listProjectStatuses: (args: { projectId: string }): Promise<unknown[]> =>
+      ipcRenderer.invoke('backlog:listProjectStatuses', args),
+
     updateTask: (args: {
       projectId: string
       taskId: string
       updates: unknown
     }): Promise<{ ok: true } | { ok: false; error: string }> =>
       ipcRenderer.invoke('backlog:updateTask', args),
+
+    listTaskComments: (args: { projectId: string; taskId: string }): Promise<unknown[]> =>
+      ipcRenderer.invoke('backlog:listTaskComments', args),
 
     ensureProjectAgentToken: (args: {
       projectId: string
