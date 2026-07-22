@@ -1,10 +1,12 @@
 import type { StateCreator } from 'zustand'
 import type { AppState } from '../types'
 import type {
+  BacklogAssignable,
   BacklogConnectionStatus,
   BacklogConnectResult,
   BacklogProject,
   BacklogTask,
+  BacklogTaskComment,
   BacklogTaskFilter,
   BacklogTaskUpdate
 } from '../../../../shared/types'
@@ -12,7 +14,10 @@ import type { CacheEntry } from './github'
 import {
   backlogEnsureProjectAgentToken,
   backlogGetTask,
+  backlogListProjectAssignables,
+  backlogListProjectStatuses,
   backlogListProjects,
+  backlogListTaskComments,
   backlogListTasks,
   backlogRevokeProjectAgentToken,
   backlogUpdateTask,
@@ -55,6 +60,10 @@ export type BacklogSlice = {
     taskId: string,
     options?: BacklogReadOptions
   ) => Promise<BacklogTask | null>
+  listBacklogProjectAssignables: (projectId: string) => Promise<BacklogAssignable[]>
+  listBacklogProjectStatuses: (projectId: string) => Promise<string[]>
+  /** Lazy — call only when the detail panel's activity section is opened. */
+  listBacklogTaskComments: (projectId: string, taskId: string) => Promise<BacklogTaskComment[]>
   updateBacklogTask: (
     projectId: string,
     taskId: string,
@@ -182,6 +191,18 @@ export const createBacklogSlice: StateCreator<AppState, [], [], BacklogSlice> = 
     }
   },
 
+  listBacklogProjectAssignables: async (projectId) => {
+    return (await backlogListProjectAssignables(get().settings, projectId)) ?? []
+  },
+
+  listBacklogProjectStatuses: async (projectId) => {
+    return (await backlogListProjectStatuses(get().settings, projectId)) ?? []
+  },
+
+  listBacklogTaskComments: async (projectId, taskId) => {
+    return (await backlogListTaskComments(get().settings, projectId, taskId)) ?? []
+  },
+
   updateBacklogTask: async (projectId, taskId, updates) => {
     const result = await backlogUpdateTask(get().settings, projectId, taskId, updates)
     if (result.ok) {
@@ -189,17 +210,14 @@ export const createBacklogSlice: StateCreator<AppState, [], [], BacklogSlice> = 
       if (updates.title !== undefined) {
         patch.title = updates.title
       }
+      if (updates.description !== undefined) {
+        patch.body = updates.description
+      }
       if (updates.status !== undefined) {
         patch.status = updates.status
       }
-      if (updates.labels !== undefined) {
-        patch.labels = updates.labels
-      }
-      if (updates.milestone !== undefined) {
-        patch.milestone = updates.milestone ?? undefined
-      }
-      if (updates.priority !== undefined) {
-        patch.priority = updates.priority
+      if (updates.dueDate !== undefined) {
+        patch.dueDate = updates.dueDate ?? undefined
       }
       if (updates.assignee !== undefined) {
         patch.assignee =

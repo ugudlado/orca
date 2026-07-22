@@ -4,7 +4,9 @@ import type {
   BacklogConnectionStatus,
   BacklogMutationResult,
   BacklogProject,
+  BacklogAssignable,
   BacklogTask,
+  BacklogTaskComment,
   BacklogTaskFilter,
   BacklogTaskUpdate,
   GlobalSettings
@@ -106,6 +108,30 @@ export async function backlogGetTask(
     : window.api.backlog.getTask(args)
 }
 
+export async function backlogListProjectAssignables(
+  settings: RuntimeBacklogSettings,
+  projectId: string
+): Promise<BacklogAssignable[]> {
+  const target = getBacklogRuntimeTarget(settings)
+  const args = { projectId }
+  return target.kind === 'environment'
+    ? callRuntimeRpc<BacklogAssignable[]>(target, 'backlog.listProjectAssignables', args, {
+        timeoutMs: 30_000
+      })
+    : window.api.backlog.listProjectAssignables(args)
+}
+
+export async function backlogListProjectStatuses(
+  settings: RuntimeBacklogSettings,
+  projectId: string
+): Promise<string[]> {
+  const target = getBacklogRuntimeTarget(settings)
+  const args = { projectId }
+  return target.kind === 'environment'
+    ? callRuntimeRpc<string[]>(target, 'backlog.listProjectStatuses', args, { timeoutMs: 30_000 })
+    : window.api.backlog.listProjectStatuses(args)
+}
+
 export async function backlogUpdateTask(
   settings: RuntimeBacklogSettings,
   projectId: string,
@@ -119,6 +145,20 @@ export async function backlogUpdateTask(
         timeoutMs: 30_000
       })
     : window.api.backlog.updateTask(args)
+}
+
+export async function backlogListTaskComments(
+  settings: RuntimeBacklogSettings,
+  projectId: string,
+  taskId: string
+): Promise<BacklogTaskComment[]> {
+  const target = getBacklogRuntimeTarget(settings)
+  const args = { projectId, taskId }
+  return target.kind === 'environment'
+    ? callRuntimeRpc<BacklogTaskComment[]>(target, 'backlog.listTaskComments', args, {
+        timeoutMs: 30_000
+      })
+    : window.api.backlog.listTaskComments(args)
 }
 
 export async function backlogEnsureProjectAgentToken(
