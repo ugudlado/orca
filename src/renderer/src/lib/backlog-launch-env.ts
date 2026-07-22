@@ -12,6 +12,11 @@ function isLocalhostBacklogUrl(serverUrl: string): boolean {
   }
 }
 
+/** Prefer main-reported hostname (sandboxed preload cannot call node:os). */
+export function resolveBacklogHostHostname(): string {
+  return useAppStore.getState().backlogStatus.hostHostname?.trim() || 'local'
+}
+
 export async function resolveBacklogWorkItemLaunchEnv(args: {
   backlogProjectId: string
   backlogTaskId: string
@@ -19,9 +24,7 @@ export async function resolveBacklogWorkItemLaunchEnv(args: {
 }): Promise<Record<string, string> | null> {
   const store = useAppStore.getState()
   const settings = store.settings
-  const agentName = buildBacklogOrcaAgentName(
-    store.backlogStatus.hostHostname ?? window.api.platform.get().hostname
-  )
+  const agentName = buildBacklogOrcaAgentName(resolveBacklogHostHostname())
   const tokenResult = await store.ensureBacklogProjectAgentToken({
     projectId: args.backlogProjectId,
     agentName
@@ -58,6 +61,5 @@ export async function resolveBacklogWorkItemLaunchEnv(args: {
 }
 
 export function getBacklogOrcaAgentNameForAssignee(): string {
-  const hostHostname = useAppStore.getState().backlogStatus.hostHostname
-  return buildBacklogOrcaAgentName(hostHostname ?? window.api.platform.get().hostname)
+  return buildBacklogOrcaAgentName(resolveBacklogHostHostname())
 }

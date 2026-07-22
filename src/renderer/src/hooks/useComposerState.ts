@@ -26,7 +26,10 @@ import {
   resolveTuiAgentLaunchArgs,
   resolveTuiAgentLaunchEnv
 } from '../../../shared/tui-agent-launch-defaults'
-import { resolveBacklogWorkItemLaunchEnv } from '@/lib/backlog-launch-env'
+import {
+  resolveBacklogHostHostname,
+  resolveBacklogWorkItemLaunchEnv
+} from '@/lib/backlog-launch-env'
 import { buildBacklogStartWorkTaskUpdate } from '../../../shared/backlog-start-work-update'
 import { tuiAgentToAgentKind } from '@/lib/telemetry'
 import { isGitRepoKind } from '../../../shared/repo-kind'
@@ -3647,9 +3650,7 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
         submitLinkedWorkItem?.backlogProjectId &&
         submitLinkedWorkItem?.backlogTaskId
       ) {
-        const updates = buildBacklogStartWorkTaskUpdate(
-          useAppStore.getState().backlogStatus.hostHostname ?? window.api.platform.get().hostname
-        )
+        const updates = buildBacklogStartWorkTaskUpdate(resolveBacklogHostHostname())
         void useAppStore
           .getState()
           .updateBacklogTask(

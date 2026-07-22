@@ -23,6 +23,7 @@ import type { WorktreeCreationRequest } from '@/lib/pending-worktree-creation'
 import { createBrowserUuid } from '@/lib/browser-uuid'
 import { seedNativeChatAppliedSessionOptions } from '@/components/native-chat/native-chat-session-option-cache'
 import { buildBacklogStartWorkTaskUpdate } from '../../../shared/backlog-start-work-update'
+import { resolveBacklogHostHostname } from '@/lib/backlog-launch-env'
 
 // Why: mirrors the startup-opt the composer used to build inline. The renderer
 // only seeds the first terminal when the backend did not already spawn it.
@@ -246,9 +247,7 @@ export async function executeWorktreeCreation(
     }
   }
   if (preparedRequest.backlogStartWork) {
-    const updates = buildBacklogStartWorkTaskUpdate(
-      useAppStore.getState().backlogStatus.hostHostname ?? window.api.platform.get().hostname
-    )
+    const updates = buildBacklogStartWorkTaskUpdate(resolveBacklogHostHostname())
     void useAppStore
       .getState()
       .updateBacklogTask(
