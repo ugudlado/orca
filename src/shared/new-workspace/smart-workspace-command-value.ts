@@ -5,6 +5,7 @@ export type SmartWorkspaceCommandRowKind =
   | 'gitlab'
   | 'branch'
   | 'linear'
+  | 'backlog'
 
 export type SmartWorkspaceCommandRow = {
   kind: SmartWorkspaceCommandRowKind

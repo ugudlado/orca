@@ -666,6 +666,51 @@ function migrateAgentYoloDefaults(
   }
 }
 
+function normalizeBacklogPersistedSettings(
+  settings: Partial<GlobalSettings> | undefined
+): Pick<
+  GlobalSettings,
+  'backlogServerUrl' | 'backlogVisibleProjectIds' | 'backlogAgentId' | 'backlogProjectTokenMeta'
+> {
+  const serverUrl =
+    typeof settings?.backlogServerUrl === 'string' && settings.backlogServerUrl.trim()
+      ? settings.backlogServerUrl.trim()
+      : 'http://localhost:6420'
+  const visibleProjectIds = Array.isArray(settings?.backlogVisibleProjectIds)
+    ? settings.backlogVisibleProjectIds.filter(
+        (id): id is string => typeof id === 'string' && id.trim().length > 0
+      )
+    : []
+  const agentId =
+    typeof settings?.backlogAgentId === 'string' && settings.backlogAgentId.trim()
+      ? settings.backlogAgentId.trim()
+      : null
+  const projectTokenMeta: GlobalSettings['backlogProjectTokenMeta'] = {}
+  const rawMeta = settings?.backlogProjectTokenMeta
+  if (rawMeta && typeof rawMeta === 'object' && !Array.isArray(rawMeta)) {
+    for (const [projectId, value] of Object.entries(rawMeta)) {
+      if (typeof projectId !== 'string' || !projectId.trim()) {
+        continue
+      }
+      const hashPrefix =
+        value &&
+        typeof value === 'object' &&
+        typeof (value as { hashPrefix?: unknown }).hashPrefix === 'string'
+          ? (value as { hashPrefix: string }).hashPrefix.trim()
+          : ''
+      if (hashPrefix) {
+        projectTokenMeta[projectId.trim()] = { hashPrefix }
+      }
+    }
+  }
+  return {
+    backlogServerUrl: serverUrl,
+    backlogVisibleProjectIds: visibleProjectIds,
+    backlogAgentId: agentId,
+    backlogProjectTokenMeta: projectTokenMeta
+  }
+}
+
 function normalizeGroupBy(groupBy: unknown): PersistedState['ui']['groupBy'] {
   if (
     groupBy === 'none' ||
@@ -3148,6 +3193,7 @@ export class Store {
             // Why: missing means default-on; round-trips unchanged on non-mac since darwin consumers gate the effect.
             showMenuBarIcon: parsed.settings?.showMenuBarIcon !== false,
             uiLanguage: normalizeUiLanguage(parsed.settings?.uiLanguage),
+            ...normalizeBacklogPersistedSettings(parsed.settings),
             defaultTaskSource: taskProviderSettings.defaultTaskSource,
             visibleTaskProviders: taskProviderSettings.visibleTaskProviders,
             visibleTaskProvidersDefaultedForJira: true,
@@ -5320,6 +5366,20 @@ export class Store {
       if ('visibleTaskProviders' in updates) {
         sanitizedUpdates.visibleTaskProvidersDefaultedForJira = true
       }
+    }
+    if (
+      'backlogServerUrl' in updates ||
+      'backlogVisibleProjectIds' in updates ||
+      'backlogAgentId' in updates ||
+      'backlogProjectTokenMeta' in updates
+    ) {
+      Object.assign(
+        sanitizedUpdates,
+        normalizeBacklogPersistedSettings({
+          ...this.state.settings,
+          ...sanitizedUpdates
+        })
+      )
     }
     if ('autoRenameBranchFromWork' in updates || 'autoRenameBranchFromWorkDefaultedOn' in updates) {
       sanitizedUpdates.autoRenameBranchFromWorkDefaultedOn = true

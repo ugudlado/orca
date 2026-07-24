@@ -159,6 +159,11 @@ import {
 } from '@/components/linear-project-view-surfaces'
 import JiraIssueWorkspace from '@/components/JiraIssueWorkspace'
 import { TaskPageJiraIssueList } from '@/components/task-page-jira-issue-list'
+import { TaskPageBacklogPanel } from '@/components/task-page-backlog-panel'
+import { launchWorkItemDirect } from '@/lib/launch-work-item-direct'
+import { resolveBacklogHostHostname } from '@/lib/backlog-launch-env'
+import { buildBacklogStartWorkTaskUpdate } from '../../../shared/backlog-start-work-update'
+import { buildBacklogWorkspaceSource } from '../../../shared/new-workspace/workspace-source'
 import {
   getSingleJiraProjectScope,
   getTaskPageJiraStatusOrderScopeKey,
@@ -290,6 +295,7 @@ import type {
   JiraProject,
   JiraProjectStatusOrder,
   JiraPriority,
+  BacklogTask,
   LinearIssue,
   LinearProjectDetail,
   LinearProjectSummary,
@@ -3130,16 +3136,29 @@ export default function TaskPage(): React.JSX.Element {
   const searchJiraIssues = useAppStore((s) => s.searchJiraIssues)
   const listJiraIssues = useAppStore((s) => s.listJiraIssues)
   const checkJiraConnection = useAppStore((s) => s.checkJiraConnection)
+  const backlogStatus = useAppStore((s) => s.backlogStatus)
+  const backlogStatusChecked = useAppStore((s) => s.backlogStatusChecked)
+  const backlogStatusContextKey = useAppStore((s) => s.backlogStatusContextKey)
+  const checkBacklogConnection = useAppStore((s) => s.checkBacklogConnection)
+  const listBacklogProjects = useAppStore((s) => s.listBacklogProjects)
+  const listBacklogTasks = useAppStore((s) => s.listBacklogTasks)
+  const updateBacklogTask = useAppStore((s) => s.updateBacklogTask)
+  const listBacklogProjectAssignables = useAppStore((s) => s.listBacklogProjectAssignables)
+  const listBacklogProjectStatuses = useAppStore((s) => s.listBacklogProjectStatuses)
+  const listBacklogTaskComments = useAppStore((s) => s.listBacklogTaskComments)
   const providerRuntimeContextKey = getProviderRuntimeContextKey(settings)
   const providerRuntimeContextKeyRef = useRef(providerRuntimeContextKey)
   providerRuntimeContextKeyRef.current = providerRuntimeContextKey
   const linearStatusCurrent = linearStatusContextKey === providerRuntimeContextKey
   const jiraStatusCurrent = jiraStatusContextKey === providerRuntimeContextKey
+  const backlogStatusCurrent = backlogStatusContextKey === providerRuntimeContextKey
   const preflightStatusCurrent = preflightStatusContextKey === expectedPreflightContextKey
   const linearStatusReady = linearStatusCurrent && linearStatusChecked
   const jiraStatusReady = jiraStatusCurrent && jiraStatusChecked
+  const backlogStatusReady = backlogStatusCurrent && backlogStatusChecked
   const linearConnected = linearStatusCurrent && linearStatus.connected
   const jiraConnected = jiraStatusCurrent && jiraStatus.connected
+  const backlogConnected = backlogStatusCurrent && backlogStatus.connected
   const submitShortcutLabel = getScreenSubmitShortcutLabel()
   const eligibleRepos = useMemo(() => getTaskEligibleRepos(repos), [repos])
 
@@ -3515,8 +3534,25 @@ export default function TaskPage(): React.JSX.Element {
   const jiraTaskSourceScopeKey = jiraTaskSourceContext
     ? getTaskSourceCacheScope(jiraTaskSourceContext)
     : providerRuntimeContextKey
+  const backlogTaskSourceContext = useMemo(
+    () =>
+      normalizeTaskSourceContext({
+        provider: 'backlog',
+        projectId: fallbackTaskSourceProjectId,
+        hostId: accountBackedTaskSourceHostId,
+        providerIdentity: { provider: 'backlog', projectId: null, projectName: null },
+        accountLabel: backlogStatus.serverUrl?.trim() || settings?.backlogServerUrl?.trim() || null
+      }),
+    [
+      accountBackedTaskSourceHostId,
+      backlogStatus.serverUrl,
+      fallbackTaskSourceProjectId,
+      settings?.backlogServerUrl
+    ]
+  )
+
   const accountBackedTaskSourceHostAvailability = useMemo<TaskSourceHostAvailability[]>(() => {
-    if (taskSource !== 'linear' && taskSource !== 'jira') {
+    if (taskSource !== 'linear' && taskSource !== 'jira' && taskSource !== 'backlog') {
       return []
     }
     const host = hostRegistryById.get(accountBackedTaskSourceHostId)
@@ -3589,6 +3625,13 @@ export default function TaskPage(): React.JSX.Element {
           sourceCount: 1,
           hostLabelById,
           hostAvailability: accountAvailability
+        }) ?? undefined,
+      backlog:
+        getTaskSourceAvailabilityNotice({
+          providerLabel: labelFor('backlog'),
+          sourceCount: 1,
+          hostLabelById,
+          hostAvailability: accountAvailability
         }) ?? undefined
     }
   }, [
@@ -3610,7 +3653,7 @@ export default function TaskPage(): React.JSX.Element {
       providerLabel,
       repoContexts: taskSourceRepoContexts,
       hostAvailability:
-        taskSource === 'linear' || taskSource === 'jira'
+        taskSource === 'linear' || taskSource === 'jira' || taskSource === 'backlog'
           ? accountBackedTaskSourceHostAvailability
           : taskSourceHostAvailability,
       accountHostId: accountBackedTaskSourceHostId,
@@ -3638,11 +3681,11 @@ export default function TaskPage(): React.JSX.Element {
     return getTaskSourceAvailabilityNotice({
       providerLabel,
       sourceCount:
-        taskSource === 'linear' || taskSource === 'jira'
+        taskSource === 'linear' || taskSource === 'jira' || taskSource === 'backlog'
           ? 1
           : Math.max(1, taskSourceRepoContexts.length),
       hostAvailability:
-        taskSource === 'linear' || taskSource === 'jira'
+        taskSource === 'linear' || taskSource === 'jira' || taskSource === 'backlog'
           ? accountBackedTaskSourceHostAvailability
           : taskSourceHostAvailability,
       hostLabelById
@@ -7168,9 +7211,15 @@ export default function TaskPage(): React.JSX.Element {
     if (!jiraStatusReady) {
       void checkJiraConnection()
     }
+    if (!backlogStatusReady) {
+      void checkBacklogConnection()
+    }
   }, [
+    checkBacklogConnection,
     checkJiraConnection,
     checkLinearConnection,
+    backlogStatusContextKey,
+    backlogStatusReady,
     expectedPreflightContextKey,
     jiraStatusContextKey,
     jiraStatusReady,
@@ -7912,6 +7961,58 @@ export default function TaskPage(): React.JSX.Element {
       })
     },
     [jiraTaskSourceContext, openModal]
+  )
+
+  const openComposerForBacklogTask = useCallback(
+    (task: BacklogTask): void => {
+      const linkedWorkItem = buildBacklogWorkspaceSource(task)
+      openModal('new-workspace-composer', {
+        linkedWorkItem,
+        taskSourceContext: backlogTaskSourceContext,
+        prefilledName: getLinkedWorkItemSuggestedName(linkedWorkItem),
+        initialRepoId: primaryRepo?.id,
+        telemetrySource: 'sidebar'
+      })
+    },
+    [backlogTaskSourceContext, openModal, primaryRepo?.id]
+  )
+
+  const handleUseBacklogTask = useCallback(
+    (task: BacklogTask): void => {
+      useAppStore.getState().recordFeatureInteraction('backlog-tasks')
+      const repo = primaryRepo
+      if (!repo) {
+        openComposerForBacklogTask(task)
+        return
+      }
+      const pasteContent = `# ${task.id} ${task.title}\n\n${task.body}`
+      void launchWorkItemDirect({
+        item: {
+          provider: 'backlog',
+          type: 'issue',
+          number: 0,
+          title: task.title,
+          url: task.url,
+          pasteContent,
+          backlogTaskId: task.id,
+          backlogProjectId: task.projectId
+        },
+        repoId: repo.id,
+        launchSource: 'task_page',
+        telemetrySource: 'sidebar',
+        openModalFallback: () => openComposerForBacklogTask(task)
+      }).then(async (launched) => {
+        if (!launched) {
+          return
+        }
+        const assigneeUpdate = buildBacklogStartWorkTaskUpdate(resolveBacklogHostHostname())
+        const result = await updateBacklogTask(task.projectId, task.id, assigneeUpdate)
+        if (!result.ok) {
+          toast.error(result.error)
+        }
+      })
+    },
+    [openComposerForBacklogTask, primaryRepo, updateBacklogTask]
   )
 
   const handleUseJiraItem = useCallback(
@@ -9829,6 +9930,22 @@ export default function TaskPage(): React.JSX.Element {
                 </div>
               </div>
             </div>
+          ) : taskSource === 'backlog' ? (
+            <TaskPageBacklogPanel
+              connected={backlogConnected}
+              statusReady={backlogStatusReady}
+              visibleProjectIds={settings?.backlogVisibleProjectIds ?? []}
+              onConnect={() => void checkBacklogConnection()}
+              onUse={handleUseBacklogTask}
+              listProjects={listBacklogProjects}
+              listTasks={listBacklogTasks}
+              updateTask={updateBacklogTask}
+              listAssignables={listBacklogProjectAssignables}
+              listStatuses={listBacklogProjectStatuses}
+              listComments={listBacklogTaskComments}
+              checkConnection={checkBacklogConnection}
+              onHideSource={() => hideTaskSource('backlog', 'Backlog')}
+            />
           ) : taskSource === 'jira' ? (
             !jiraStatusReady ? (
               <div className="mt-4 flex items-center justify-center py-14">

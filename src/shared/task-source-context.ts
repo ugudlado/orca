@@ -9,7 +9,7 @@ import {
 import type { GlobalSettings, ProjectProviderIdentity, Repo } from './types'
 import { githubRepoIdentityKey } from './github-repository-identity-key'
 
-export type TaskProvider = 'github' | 'gitlab' | 'linear' | 'jira'
+export type TaskProvider = 'github' | 'gitlab' | 'linear' | 'jira' | 'backlog'
 
 export type GitHubTaskProviderIdentity = ProjectProviderIdentity & {
   provider: 'github'
@@ -38,11 +38,18 @@ export type JiraTaskProviderIdentity = {
   projectKey?: string | null
 }
 
+export type BacklogTaskProviderIdentity = {
+  provider: 'backlog'
+  projectId?: string | null
+  projectName?: string | null
+}
+
 export type TaskProviderIdentity =
   | GitHubTaskProviderIdentity
   | GitLabTaskProviderIdentity
   | LinearTaskProviderIdentity
   | JiraTaskProviderIdentity
+  | BacklogTaskProviderIdentity
 
 export type TaskSourceContext = {
   kind: 'task-source'
@@ -183,6 +190,7 @@ function normalizeTaskProvider(value: string): TaskProvider | null {
     case 'gitlab':
     case 'linear':
     case 'jira':
+    case 'backlog':
       return value
     default:
       return null
@@ -217,6 +225,8 @@ function providerIdentityCachePart(identity: TaskProviderIdentity | null | undef
       return [identity.workspaceId, identity.teamId ?? identity.teamKey].filter(Boolean).join('/')
     case 'jira':
       return [identity.siteId ?? identity.siteUrl, identity.projectKey].filter(Boolean).join('/')
+    case 'backlog':
+      return [identity.projectId, identity.projectName].filter(Boolean).join('/')
   }
 }
 

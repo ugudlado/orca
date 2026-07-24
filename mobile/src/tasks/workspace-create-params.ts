@@ -6,6 +6,7 @@ import type {
 } from '../../../src/shared/types'
 import { getWorkspaceSourceName } from '../../../src/shared/new-workspace/workspace-source'
 import { resolveMobileWorkspaceCreateName } from './mobile-workspace-name'
+import { buildBacklogTaskPasteContent } from './backlog-mobile-task-helpers'
 import type { WorkspaceAgentChoice } from './workspace-agent-selection'
 
 export type WorkspaceCreateSetupDecision = SetupDecision
@@ -50,10 +51,22 @@ type WorkspaceCreateLinearItem = {
   }
 }
 
+type WorkspaceCreateBacklogItem = {
+  provider: 'backlog'
+  source: {
+    id: string
+    projectId: string
+    title: string
+    url: string
+    body: string
+  }
+}
+
 export type WorkspaceCreateTaskItem =
   | WorkspaceCreateGitHubItem
   | WorkspaceCreateGitLabItem
   | WorkspaceCreateLinearItem
+  | WorkspaceCreateBacklogItem
 
 export type WorkspaceCreateParams = Record<string, unknown>
 
@@ -87,6 +100,8 @@ export function buildTaskWorkspaceCreateParams(args: {
   sparseCheckout?: WorkspaceCreateSparseCheckout
   hostedStartPoint?: WorkspaceCreateHostedStartPoint
   nameIsAutoManaged?: boolean
+  /** Injected for Backlog MCP sessions (BACKLOG_URL/TOKEN/PROJECT_ID/TASK_ID). */
+  startupEnv?: Record<string, string>
 }): WorkspaceCreateParams {
   const {
     item,
@@ -101,7 +116,8 @@ export function buildTaskWorkspaceCreateParams(args: {
     pushTarget,
     sparseCheckout,
     hostedStartPoint,
-    nameIsAutoManaged = true
+    nameIsAutoManaged = true,
+    startupEnv
   } = args
   const shouldLaunchAgent = agent !== 'blank'
   const createdWithAgent = shouldLaunchAgent ? (agent as TuiAgent) : undefined
@@ -120,13 +136,25 @@ export function buildTaskWorkspaceCreateParams(args: {
           url: item.source.url,
           linearIdentifier: item.source.identifier
         })
-      : getWorkspaceSourceName({ provider: item.provider, ...item.source })
+      : item.provider === 'backlog'
+        ? getWorkspaceSourceName({
+            provider: 'backlog',
+            type: 'issue',
+            number: 0,
+            title: item.source.title,
+            url: item.source.url,
+            backlogTaskId: item.source.id
+          })
+        : getWorkspaceSourceName({ provider: item.provider, ...item.source })
   const displayName = nameIsAutoManaged ? { displayName: sourceName.displayName } : {}
+  const startupDraftContent =
+    item.provider === 'backlog' ? buildBacklogTaskPasteContent(item.source) : item.source.url
   const common = {
     setupDecision,
     activate: true,
-    ...(shouldLaunchAgent ? { startupDraft: item.source.url } : {}),
+    ...(shouldLaunchAgent ? { startupDraft: startupDraftContent } : {}),
     ...(createdWithAgent ? { createdWithAgent } : {}),
+    ...(startupEnv && Object.keys(startupEnv).length > 0 ? { startupEnv } : {}),
     ...(selectedBaseBranch ? { baseBranch: selectedBaseBranch } : {}),
     ...(compareBaseRef ? { compareBaseRef } : {}),
     ...(branchNameOverride ? { branchNameOverride } : {}),
@@ -158,6 +186,20 @@ export function buildTaskWorkspaceCreateParams(args: {
       ...(item.source.type === 'issue'
         ? { linkedGitLabIssue: item.source.number }
         : { linkedGitLabMR: item.source.number })
+    }
+  }
+
+  if (item.provider === 'backlog') {
+    return {
+      repo: `id:${targetRepoId}`,
+      name: resolveMobileWorkspaceCreateName({
+        draft: workspaceName,
+        fallback: item.source.id.toLowerCase()
+      }),
+      ...displayName,
+      backlogTaskId: item.source.id,
+      backlogProjectId: item.source.projectId,
+      ...common
     }
   }
 

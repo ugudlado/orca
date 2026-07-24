@@ -144,6 +144,10 @@ import type {
   WorktreeStartupLaunch,
   LinearCustomViewModel,
   JiraConnectArgs,
+  BacklogConnectArgs,
+  BacklogConnectResult,
+  BacklogTaskFilter,
+  BacklogTaskUpdate,
   JiraCreateIssueArgs,
   JiraIssueFilter,
   JiraIssueUpdate,
@@ -684,6 +688,25 @@ import {
   updateIssue as updateJiraIssue
 } from '../jira/issues'
 import {
+  connect as connectBacklog,
+  disconnect as disconnectBacklog,
+  getStatus as getBacklogStatus
+} from '../backlog/client'
+import {
+  ensureAgent as ensureBacklogAgent,
+  ensureProjectAgentToken as ensureBacklogProjectAgentToken,
+  revokeProjectAgentToken as revokeBacklogProjectAgentToken
+} from '../backlog/agent-tokens'
+import {
+  getTask as getBacklogTask,
+  listProjectAssignables as listBacklogProjectAssignables,
+  listProjectStatuses as listBacklogProjectStatuses,
+  listProjects as listBacklogProjects,
+  listTasks as listBacklogTasks,
+  updateTask as updateBacklogTask
+} from '../backlog/tasks'
+import { listTaskComments as listBacklogTaskComments } from '../backlog/backlog-task-comments'
+import {
   clearProjectItemFieldValue,
   getProjectViewTable,
   getWorkItemDetailsBySlug,
@@ -1005,6 +1028,10 @@ type RuntimeStore = {
     prBotAuthorOverrides?: GlobalSettings['prBotAuthorOverrides']
     terminalQuickCommands?: GlobalSettings['terminalQuickCommands']
     gitlabProjects?: GlobalSettings['gitlabProjects']
+    backlogServerUrl?: GlobalSettings['backlogServerUrl']
+    backlogVisibleProjectIds?: GlobalSettings['backlogVisibleProjectIds']
+    backlogAgentId?: GlobalSettings['backlogAgentId']
+    backlogProjectTokenMeta?: GlobalSettings['backlogProjectTokenMeta']
     mobileAutoRestoreFitMs?: number | null
     mobileEmulatorEnabled?: boolean
     mobileEmulatorDefaultDeviceUdid?: string | null
@@ -3056,6 +3083,10 @@ export class OrcaRuntimeService {
     | 'minimaxGroupId'
     | 'minimaxUsageModels'
     | 'prBotAuthorOverrides'
+    | 'backlogServerUrl'
+    | 'backlogVisibleProjectIds'
+    | 'backlogAgentId'
+    | 'backlogProjectTokenMeta'
   > {
     if (!this.store?.getSettings) {
       throw new Error('runtime_unavailable')
@@ -3078,7 +3109,11 @@ export class OrcaRuntimeService {
       compactWorktreeCards: settings.compactWorktreeCards === true,
       minimaxGroupId: settings.minimaxGroupId ?? '',
       minimaxUsageModels: settings.minimaxUsageModels ?? 'general',
-      prBotAuthorOverrides: settings.prBotAuthorOverrides ?? []
+      prBotAuthorOverrides: settings.prBotAuthorOverrides ?? [],
+      backlogServerUrl: settings.backlogServerUrl ?? 'http://localhost:6420',
+      backlogVisibleProjectIds: settings.backlogVisibleProjectIds ?? [],
+      backlogAgentId: settings.backlogAgentId ?? null,
+      backlogProjectTokenMeta: settings.backlogProjectTokenMeta ?? {}
     }
   }
 
@@ -3101,6 +3136,10 @@ export class OrcaRuntimeService {
       | 'minimaxGroupId'
       | 'minimaxUsageModels'
       | 'prBotAuthorOverrides'
+      | 'backlogServerUrl'
+      | 'backlogVisibleProjectIds'
+      | 'backlogAgentId'
+      | 'backlogProjectTokenMeta'
     >
   ): Pick<
     GlobalSettings,
@@ -3121,6 +3160,10 @@ export class OrcaRuntimeService {
     | 'minimaxGroupId'
     | 'minimaxUsageModels'
     | 'prBotAuthorOverrides'
+    | 'backlogServerUrl'
+    | 'backlogVisibleProjectIds'
+    | 'backlogAgentId'
+    | 'backlogProjectTokenMeta'
   > {
     if (!this.store?.getSettings || !this.store.updateSettings) {
       throw new Error('runtime_unavailable')
@@ -29757,6 +29800,136 @@ export class OrcaRuntimeService {
     siteId?: string
   ): ReturnType<typeof getJiraProjectStatusOrder> {
     return getJiraProjectStatusOrder(projectKey, siteId)
+  }
+
+  // ── Backlog integration ──
+
+  async backlogConnect(args: BacklogConnectArgs): Promise<BacklogConnectResult> {
+    const result = await connectBacklog(args)
+    if (result.ok && this.store?.updateSettings) {
+      this.store.updateSettings({ backlogServerUrl: result.serverUrl }, { notifyListeners: true })
+    }
+    return result
+  }
+
+  async backlogDisconnect(): Promise<{ ok: true }> {
+    const settings = this.store?.getSettings?.()
+    const agentId = settings?.backlogAgentId
+    const meta = settings?.backlogProjectTokenMeta ?? {}
+    if (agentId) {
+      await Promise.all(
+        Object.entries(meta).map(async ([projectId, value]) => {
+          const hashPrefix = value?.hashPrefix?.trim()
+          if (!hashPrefix) {
+            return
+          }
+          try {
+            await revokeBacklogProjectAgentToken({ agentId, projectId, hashPrefix })
+          } catch {
+            // Best-effort cleanup on disconnect.
+          }
+        })
+      )
+    }
+    disconnectBacklog()
+    if (this.store?.updateSettings) {
+      this.store.updateSettings(
+        { backlogAgentId: null, backlogProjectTokenMeta: {} },
+        { notifyListeners: true }
+      )
+    }
+    return { ok: true }
+  }
+
+  backlogStatus(): ReturnType<typeof getBacklogStatus> {
+    return getBacklogStatus()
+  }
+
+  backlogListProjects(): ReturnType<typeof listBacklogProjects> {
+    return listBacklogProjects()
+  }
+
+  backlogListTasks(
+    projectId: string,
+    filter?: BacklogTaskFilter
+  ): ReturnType<typeof listBacklogTasks> {
+    return listBacklogTasks(projectId, filter)
+  }
+
+  backlogGetTask(projectId: string, taskId: string): ReturnType<typeof getBacklogTask> {
+    return getBacklogTask(projectId, taskId)
+  }
+
+  backlogListProjectAssignables(
+    projectId: string
+  ): ReturnType<typeof listBacklogProjectAssignables> {
+    return listBacklogProjectAssignables(projectId)
+  }
+
+  backlogListProjectStatuses(projectId: string): ReturnType<typeof listBacklogProjectStatuses> {
+    return listBacklogProjectStatuses(projectId)
+  }
+
+  backlogUpdateTask(
+    projectId: string,
+    taskId: string,
+    updates: BacklogTaskUpdate
+  ): ReturnType<typeof updateBacklogTask> {
+    return updateBacklogTask(projectId, taskId, updates)
+  }
+
+  backlogListTaskComments(
+    projectId: string,
+    taskId: string
+  ): ReturnType<typeof listBacklogTaskComments> {
+    return listBacklogTaskComments(projectId, taskId)
+  }
+
+  async backlogEnsureProjectAgentToken(args: {
+    projectId: string
+    agentName: string
+    agentId?: string
+  }): Promise<
+    { ok: true; agentId: string; hashPrefix: string; token: string } | { ok: false; error: string }
+  > {
+    try {
+      const settings = this.store?.getSettings?.()
+      const agentId = await ensureBacklogAgent(
+        args.agentName,
+        args.agentId ?? settings?.backlogAgentId
+      )
+      const minted = await ensureBacklogProjectAgentToken({
+        agentId,
+        projectId: args.projectId
+      })
+      if (this.store?.updateSettings) {
+        this.store.updateSettings(
+          {
+            backlogAgentId: agentId,
+            backlogProjectTokenMeta: {
+              ...settings?.backlogProjectTokenMeta,
+              [args.projectId]: { hashPrefix: minted.hashPrefix }
+            }
+          },
+          { notifyListeners: true }
+        )
+      }
+      return { ok: true, agentId, hashPrefix: minted.hashPrefix, token: minted.token }
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : 'Failed to ensure project agent token.'
+      }
+    }
+  }
+
+  async backlogRevokeProjectAgentToken(args: {
+    projectId: string
+    agentId: string
+    hashPrefix: string
+  }): Promise<{ ok: true }> {
+    await revokeBacklogProjectAgentToken(args)
+    return { ok: true }
   }
 
   // ── Browser automation ──

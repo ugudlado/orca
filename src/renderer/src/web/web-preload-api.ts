@@ -549,6 +549,7 @@ function createWebPreloadApi(): Partial<PreloadApi> {
     platform: {
       get: () => ({
         platform: getBrowserPlatform(),
+        hostname: 'web',
         osRelease: '',
         displayServer: null
       })
@@ -753,6 +754,7 @@ function createWebPreloadApi(): Partial<PreloadApi> {
     gl: createGitLabApi(),
     hostedReview: createRuntimeNamespaceApi('hostedReview'),
     linear: createRuntimeNamespaceApi('linear'),
+    backlog: createRuntimeNamespaceApi('backlog'),
     hooks: createHooksApi(),
     stats: {
       getSummary: async () =>

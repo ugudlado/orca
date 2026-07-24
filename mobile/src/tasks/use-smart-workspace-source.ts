@@ -39,6 +39,8 @@ export type UseSmartWorkspaceSourceArgs = {
   githubAvailable: boolean
   gitlabAvailable: boolean
   linearAvailable: boolean
+  backlogAvailable: boolean
+  backlogVisibleProjectIds?: readonly string[]
   mrStateFilter: MrStateFilter
   linearWorkspaceId?: string | null
   repos: readonly PasteRepoCandidate[]
@@ -48,6 +50,7 @@ const EMPTY_FAN: SmartFanOutResult = {
   githubItems: [],
   gitlabItems: [],
   linearIssues: [],
+  backlogTasks: [],
   branches: [],
   needsGitHubRemote: false,
   error: ''
@@ -65,6 +68,8 @@ export function useSmartWorkspaceSource(args: UseSmartWorkspaceSourceArgs) {
     githubAvailable,
     gitlabAvailable,
     linearAvailable,
+    backlogAvailable = false,
+    backlogVisibleProjectIds = [],
     mrStateFilter,
     linearWorkspaceId,
     repos
@@ -108,6 +113,8 @@ export function useSmartWorkspaceSource(args: UseSmartWorkspaceSourceArgs) {
         githubAvailable,
         gitlabAvailable,
         linearAvailable,
+        backlogAvailable,
+        backlogVisibleProjectIds,
         mrStateFilter,
         linearWorkspaceId,
         repos,
@@ -142,6 +149,8 @@ export function useSmartWorkspaceSource(args: UseSmartWorkspaceSourceArgs) {
     githubAvailable,
     gitlabAvailable,
     linearAvailable,
+    backlogAvailable,
+    backlogVisibleProjectIds,
     mrStateFilter,
     linearWorkspaceId,
     repos
@@ -155,12 +164,14 @@ export function useSmartWorkspaceSource(args: UseSmartWorkspaceSourceArgs) {
         gitlabAvailable,
         gitlabItems: paste.gitlab ? [paste.gitlab] : fan.gitlabItems,
         linearAvailable,
+        backlogAvailable,
         linearIssues: fan.linearIssues,
+        backlogTasks: fan.backlogTasks,
         mode,
         resultLimit: RESULT_LIMIT,
         value: query
       }),
-    [fan, gitlabAvailable, linearAvailable, mode, paste, query]
+    [fan, gitlabAvailable, linearAvailable, backlogAvailable, mode, paste, query]
   )
 
   const dismissCrossRepoPrompt = useCallback(() => {
@@ -187,6 +198,8 @@ async function runSmartSearch(args: {
   githubAvailable: boolean
   gitlabAvailable: boolean
   linearAvailable: boolean
+  backlogAvailable: boolean
+  backlogVisibleProjectIds: readonly string[]
   mrStateFilter: MrStateFilter
   linearWorkspaceId: string | null | undefined
   repos: readonly PasteRepoCandidate[]

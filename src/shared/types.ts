@@ -341,13 +341,16 @@ export type FolderWorkspace = {
 }
 
 export type FolderWorkspaceLinkedTask = {
-  provider: 'github' | 'gitlab' | 'linear' | 'jira'
+  provider: 'github' | 'gitlab' | 'linear' | 'jira' | 'backlog'
   type: 'issue' | 'pr' | 'mr'
   number: number
   title: string
   url: string
   linearIdentifier?: string
   jiraIdentifier?: string
+  /** Backlog task id — only unique within backlogProjectId. */
+  backlogTaskId?: string
+  backlogProjectId?: string
   repoId?: string
 }
 
@@ -1959,6 +1962,23 @@ export type {
   JiraUser,
   JiraViewer
 } from './jira-types'
+export type {
+  BacklogConnectArgs,
+  BacklogConnectResult,
+  BacklogConnectionStatus,
+  BacklogMutationResult,
+  BacklogProject,
+  BacklogProjectTokenMeta,
+  BacklogAssignable,
+  BacklogAcceptanceCriterionItem,
+  BacklogSubtaskSummary,
+  BacklogTask,
+  BacklogTaskAssignee,
+  BacklogTaskComment,
+  BacklogTaskFilter,
+  BacklogTaskUpdate,
+  BacklogViewer
+} from './backlog-types'
 
 /**
  * GitHub API rate-limit buckets surfaced in the TaskPage header so users can
@@ -2837,6 +2857,14 @@ export type GlobalSettings = {
   visibleTaskProviders: TaskProvider[]
   /** Why: one-shot guard to make Jira visible for existing profiles once, without re-adding after a later opt-out. */
   visibleTaskProvidersDefaultedForJira: boolean
+  /** Backlog server base URL (not secret). Default http://localhost:6420. */
+  backlogServerUrl: string
+  /** Selected Backlog project ids for Tasks visibility. Empty = none selected yet. */
+  backlogVisibleProjectIds: string[]
+  /** Persisted Backlog agent entity id (one per Orca install). */
+  backlogAgentId: string | null
+  /** hashPrefix per project for cached project-scoped agent tokens. */
+  backlogProjectTokenMeta: Record<string, { hashPrefix: string }>
   /** Persisted repo selection (cross-repo tasks view). null = sticky-all (includes future-added repos);
    *  string[] = frozen curated subset (ineligible ids dropped on load; empty after drop is treated as null). */
   defaultRepoSelection: string[] | null

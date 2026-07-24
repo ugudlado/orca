@@ -1785,6 +1785,60 @@ const api = {
     }): Promise<JiraProjectStatusOrder> => ipcRenderer.invoke('jira:getProjectStatusOrder', args)
   },
 
+  backlog: {
+    status: (): Promise<unknown> => ipcRenderer.invoke('backlog:status'),
+
+    connect: (args: {
+      serverUrl: string
+      token: string
+    }): Promise<{ ok: true; viewer: unknown; serverUrl: string } | { ok: false; error: string }> =>
+      ipcRenderer.invoke('backlog:connect', args),
+
+    disconnect: (): Promise<void> => ipcRenderer.invoke('backlog:disconnect'),
+
+    listProjects: (): Promise<unknown[]> => ipcRenderer.invoke('backlog:listProjects'),
+
+    listTasks: (args: {
+      projectId: string
+      filter?: { status?: string; assignee?: string }
+    }): Promise<unknown[]> => ipcRenderer.invoke('backlog:listTasks', args),
+
+    getTask: (args: { projectId: string; taskId: string }): Promise<unknown> =>
+      ipcRenderer.invoke('backlog:getTask', args),
+
+    listProjectAssignables: (args: { projectId: string }): Promise<unknown[]> =>
+      ipcRenderer.invoke('backlog:listProjectAssignables', args),
+
+    listProjectStatuses: (args: { projectId: string }): Promise<unknown[]> =>
+      ipcRenderer.invoke('backlog:listProjectStatuses', args),
+
+    updateTask: (args: {
+      projectId: string
+      taskId: string
+      updates: unknown
+    }): Promise<{ ok: true } | { ok: false; error: string }> =>
+      ipcRenderer.invoke('backlog:updateTask', args),
+
+    listTaskComments: (args: { projectId: string; taskId: string }): Promise<unknown[]> =>
+      ipcRenderer.invoke('backlog:listTaskComments', args),
+
+    ensureProjectAgentToken: (args: {
+      projectId: string
+      agentName: string
+      agentId?: string | null
+    }): Promise<
+      | { ok: true; agentId: string; hashPrefix: string; token: string }
+      | { ok: false; error: string }
+    > => ipcRenderer.invoke('backlog:ensureProjectAgentToken', args),
+
+    revokeProjectAgentToken: (args: {
+      projectId: string
+      agentId: string
+      hashPrefix: string
+    }): Promise<{ ok: true } | { ok: false; error: string }> =>
+      ipcRenderer.invoke('backlog:revokeProjectAgentToken', args)
+  },
+
   starNag: {
     onShow: (
       callback: (payload?: { mode?: 'gh' | 'web'; surface?: 'card' | 'toast' }) => void

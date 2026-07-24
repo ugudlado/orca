@@ -11,8 +11,11 @@ export function useIntegrationProviderStatusRefresh(): void {
   const linearStatusContextKey = useAppStore((s) => s.linearStatusContextKey)
   const jiraStatusChecked = useAppStore((s) => s.jiraStatusChecked)
   const jiraStatusContextKey = useAppStore((s) => s.jiraStatusContextKey)
+  const backlogStatusChecked = useAppStore((s) => s.backlogStatusChecked)
+  const backlogStatusContextKey = useAppStore((s) => s.backlogStatusContextKey)
   const checkLinearConnection = useAppStore((s) => s.checkLinearConnection)
   const checkJiraConnection = useAppStore((s) => s.checkJiraConnection)
+  const checkBacklogConnection = useAppStore((s) => s.checkBacklogConnection)
   const refreshPreflightStatus = useAppStore((s) => s.refreshPreflightStatus)
   const expectedPreflightContextKey = useAppStore((s) =>
     localPreflightContextKey(getLocalPreflightContext(s))
@@ -21,6 +24,7 @@ export function useIntegrationProviderStatusRefresh(): void {
   const preflightStatusCurrent = preflightStatusContextKey === expectedPreflightContextKey
   const linearStatusCurrent = linearStatusContextKey === providerRuntimeContextKey
   const jiraStatusCurrent = jiraStatusContextKey === providerRuntimeContextKey
+  const backlogStatusCurrent = backlogStatusContextKey === providerRuntimeContextKey
 
   useEffect(() => {
     if (!linearStatusCurrent || !linearStatusChecked) {
@@ -29,12 +33,19 @@ export function useIntegrationProviderStatusRefresh(): void {
     if (!jiraStatusCurrent || !jiraStatusChecked) {
       void checkJiraConnection()
     }
+    if (!backlogStatusCurrent || !backlogStatusChecked) {
+      void checkBacklogConnection()
+    }
     if (!preflightStatusCurrent || !preflightStatusChecked) {
       void refreshPreflightStatus()
     }
   }, [
+    checkBacklogConnection,
     checkJiraConnection,
     checkLinearConnection,
+    backlogStatusChecked,
+    backlogStatusCurrent,
+    backlogStatusContextKey,
     jiraStatusChecked,
     jiraStatusCurrent,
     jiraStatusContextKey,

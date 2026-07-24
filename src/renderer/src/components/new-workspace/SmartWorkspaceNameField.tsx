@@ -10,6 +10,7 @@ import {
   GitMerge,
   GitPullRequest,
   LoaderCircle,
+  ListTodo,
   Search,
   X
 } from 'lucide-react'
@@ -66,7 +67,8 @@ import type {
   BaseRefSearchResult,
   GitHubWorkItem,
   GitLabWorkItem,
-  LinearIssue
+  LinearIssue,
+  BacklogTask
 } from '../../../../shared/types'
 import { resolveSmartWorkspaceCommandValue } from './smart-workspace-command-value'
 import { isComposerFieldToFieldFocus } from './smart-workspace-source-popover-focus'
@@ -103,6 +105,7 @@ type SmartWorkspaceNameFieldProps = {
   onGitLabItemSelect?: (item: GitLabWorkItem) => void
   onBranchSelect: (refName: string, localBranchName: string) => void
   onLinearIssueSelect: (issue: LinearIssue) => void
+  onBacklogTaskSelect?: (task: BacklogTask) => void
   selectedSource: SmartWorkspaceNameSelection | null
   onClearSelectedSource: () => void
   githubSourceContext?: TaskSourceContext | null
@@ -120,7 +123,15 @@ type SmartWorkspaceNameFieldProps = {
 }
 
 export type SmartWorkspaceNameSelection = {
-  kind: 'github-pr' | 'github-issue' | 'gitlab-mr' | 'gitlab-issue' | 'branch' | 'linear' | 'jira'
+  kind:
+    | 'github-pr'
+    | 'github-issue'
+    | 'gitlab-mr'
+    | 'gitlab-issue'
+    | 'branch'
+    | 'linear'
+    | 'jira'
+    | 'backlog'
   label: string
   url?: string
 }
@@ -169,6 +180,7 @@ export default function SmartWorkspaceNameField({
   onGitLabItemSelect,
   onBranchSelect,
   onLinearIssueSelect,
+  onBacklogTaskSelect,
   selectedSource,
   onClearSelectedSource,
   githubSourceContext: githubSourceContextOverride,
@@ -189,36 +201,46 @@ export default function SmartWorkspaceNameField({
   const {
     addRepo,
     checkLinearConnection,
+    checkBacklogConnection,
     fetchWorkItems,
     fetchWorkItemsAcrossRepos,
     getCachedWorkItems,
     linearStatus,
     linearStatusChecked,
     listLinearIssues,
+    listBacklogTasks,
+    listBacklogProjects,
     preflightStatus,
     preflightStatusChecked,
     preflightStatusContextKey,
     expectedPreflightContextKey,
     refreshPreflightStatus,
     searchLinearIssues,
-    settings
+    settings,
+    backlogStatus,
+    backlogStatusChecked
   } = useAppStore(
     useShallow((s) => ({
       addRepo: s.addRepo,
       checkLinearConnection: s.checkLinearConnection,
+      checkBacklogConnection: s.checkBacklogConnection,
       fetchWorkItems: s.fetchWorkItems,
       fetchWorkItemsAcrossRepos: s.fetchWorkItemsAcrossRepos,
       getCachedWorkItems: s.getCachedWorkItems,
       linearStatus: s.linearStatus,
       linearStatusChecked: s.linearStatusChecked,
       listLinearIssues: s.listLinearIssues,
+      listBacklogTasks: s.listBacklogTasks,
+      listBacklogProjects: s.listBacklogProjects,
       preflightStatus: s.preflightStatus,
       preflightStatusChecked: s.preflightStatusChecked,
       preflightStatusContextKey: s.preflightStatusContextKey,
       expectedPreflightContextKey: localPreflightContextKey(getLocalPreflightContext(s)),
       refreshPreflightStatus: s.refreshPreflightStatus,
       searchLinearIssues: s.searchLinearIssues,
-      settings: s.settings
+      settings: s.settings,
+      backlogStatus: s.backlogStatus,
+      backlogStatusChecked: s.backlogStatusChecked
     }))
   )
   const selectedRepo = useMemo(
@@ -303,10 +325,12 @@ export default function SmartWorkspaceNameField({
     query: string
   } | null>(null)
   const [linearIssues, setLinearIssues] = useState<LinearIssue[]>([])
+  const [backlogTasks, setBacklogTasks] = useState<BacklogTask[]>([])
   const [githubLoading, setGithubLoading] = useState(false)
   const [gitlabLoading, setGitlabLoading] = useState(false)
   const [branchesLoading, setBranchesLoading] = useState(false)
   const [linearLoading, setLinearLoading] = useState(false)
+  const [backlogLoading, setBacklogLoading] = useState(false)
   const [commandValue, setCommandValue] = useState('')
   const localInputRef = useRef<HTMLInputElement | null>(null)
   const focusedSelectedSourceKeyRef = useRef<string | null>(null)
@@ -335,13 +359,15 @@ export default function SmartWorkspaceNameField({
   )
   const availableTaskProviders = useMemo(
     () =>
-      filterAvailableTaskProviders(['github', 'gitlab', 'linear'], {
+      filterAvailableTaskProviders(['github', 'gitlab', 'linear', 'backlog'], {
         gitlabInstalled: gitlabSourceAvailable,
         linearConnected: linearStatus.connected === true
       }),
     [gitlabSourceAvailable, linearStatus.connected]
   )
   const linearAvailable = availableTaskProviders.includes('linear')
+  const backlogAvailable =
+    availableTaskProviders.includes('backlog') && backlogStatus.connected === true
   const availableModes = getSmartWorkspaceNameModes().filter((item) => {
     if (textOnly) {
       return item.id === 'text'
@@ -354,6 +380,9 @@ export default function SmartWorkspaceNameField({
     }
     if (item.id === 'linear') {
       return linearAvailable
+    }
+    if (item.id === 'backlog') {
+      return backlogAvailable
     }
     if (item.id === 'branches') {
       return branchesEnabled && !repoBackedSourcesDisabled
@@ -461,9 +490,14 @@ export default function SmartWorkspaceNameField({
     if (!linearStatusChecked) {
       void checkLinearConnection()
     }
+    if (!backlogStatusChecked) {
+      void checkBacklogConnection()
+    }
   }, [
+    checkBacklogConnection,
     checkLinearConnection,
     disabled,
+    backlogStatusChecked,
     linearStatusChecked,
     preflightStatusChecked,
     preflightStatusCurrent,
@@ -482,16 +516,21 @@ export default function SmartWorkspaceNameField({
     if ((mode === 'gitlab' && gitlabSourceAvailable) || (mode === 'linear' && linearAvailable)) {
       return
     }
-    if (mode !== 'gitlab' && mode !== 'linear') {
+    if (mode === 'backlog' && backlogAvailable) {
+      return
+    }
+    if (mode !== 'gitlab' && mode !== 'linear' && mode !== 'backlog') {
       return
     }
     setMode('smart')
     setGitlabItems([])
     setLinearIssues([])
+    setBacklogTasks([])
     setGitlabLoading(false)
     setLinearLoading(false)
+    setBacklogLoading(false)
     setCommandValue('')
-  }, [gitlabSourceAvailable, linearAvailable, mode, textOnly])
+  }, [backlogAvailable, gitlabSourceAvailable, linearAvailable, mode, textOnly])
 
   useEffect(() => {
     if (!disabled) {
@@ -539,6 +578,11 @@ export default function SmartWorkspaceNameField({
     !textOnly &&
     linearAvailable &&
     (mode === 'smart' || mode === 'linear')
+  const shouldQueryBacklog =
+    sourceQueryWithinLimit &&
+    !textOnly &&
+    backlogAvailable &&
+    (mode === 'smart' || mode === 'backlog')
 
   useEffect(() => {
     if (disabled || !shouldQueryGithub) {
@@ -893,6 +937,56 @@ export default function SmartWorkspaceNameField({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedQuery, disabled, linearSourceContext, linearStatus.connected, shouldQueryLinear])
 
+  useEffect(() => {
+    if (disabled || !shouldQueryBacklog) {
+      setBacklogTasks([])
+      setBacklogLoading(false)
+      return
+    }
+    let stale = false
+    setBacklogLoading(true)
+    const trimmed = debouncedQuery.trim().toLowerCase()
+    const visibleProjectIds = settings?.backlogVisibleProjectIds ?? []
+    void (async () => {
+      try {
+        const projectIds =
+          visibleProjectIds.length > 0
+            ? visibleProjectIds
+            : (await listBacklogProjects()).map((project) => String(project.id))
+        const batches = await Promise.all(
+          projectIds.map((projectId) => listBacklogTasks(projectId))
+        )
+        const merged = batches
+          .flat()
+          .filter((task) => {
+            if (!trimmed) {
+              return true
+            }
+            return (
+              task.title.toLowerCase().includes(trimmed) || task.id.toLowerCase().includes(trimmed)
+            )
+          })
+          .sort((a, b) => Date.parse(b.updatedAt ?? '') - Date.parse(a.updatedAt ?? ''))
+          .slice(0, RESULT_LIMIT)
+        if (!stale) {
+          setBacklogTasks(merged)
+        }
+      } catch {
+        if (!stale) {
+          setBacklogTasks([])
+        }
+      } finally {
+        if (!stale) {
+          setBacklogLoading(false)
+        }
+      }
+    })()
+    return () => {
+      stale = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedQuery, disabled, shouldQueryBacklog, settings?.backlogVisibleProjectIds])
+
   // Why: GitLab paste-URL flow; parseGitLabIssueOrMRLink filters non-GitLab URLs via the project-internal `/-/` separator.
   const parsedGlLink = useMemo(
     () => (sourceQueryWithinLimit ? parseGitLabIssueOrMRLink(debouncedQuery) : null),
@@ -1045,6 +1139,8 @@ export default function SmartWorkspaceNameField({
         gitlabItems,
         linearAvailable,
         linearIssues,
+        backlogAvailable,
+        backlogTasks,
         mode,
         resultLimit: RESULT_LIMIT,
         value
@@ -1057,6 +1153,8 @@ export default function SmartWorkspaceNameField({
       gitlabItems,
       linearAvailable,
       linearIssues,
+      backlogAvailable,
+      backlogTasks,
       mode,
       selectedRepo?.id,
       value
@@ -1105,7 +1203,8 @@ export default function SmartWorkspaceNameField({
     sourceIntent
   })
 
-  const loading = githubLoading || gitlabLoading || branchesLoading || linearLoading
+  const loading =
+    githubLoading || gitlabLoading || branchesLoading || linearLoading || backlogLoading
   const ActiveInputIcon = mode === 'text' ? CaseSensitive : loading ? LoaderCircle : Search
 
   const handleSelect = useCallback(
@@ -1120,12 +1219,21 @@ export default function SmartWorkspaceNameField({
         onGitLabItemSelect?.(row.item)
       } else if (row.kind === 'branch') {
         onBranchSelect(row.refName, row.localBranchName)
+      } else if (row.kind === 'backlog') {
+        onBacklogTaskSelect?.(row.task)
       } else {
         onLinearIssueSelect(row.issue)
       }
       setOpen(false)
     },
-    [onBranchSelect, onGitHubItemSelect, onGitLabItemSelect, onLinearIssueSelect, onValueChange]
+    [
+      onBacklogTaskSelect,
+      onBranchSelect,
+      onGitHubItemSelect,
+      onGitLabItemSelect,
+      onLinearIssueSelect,
+      onValueChange
+    ]
   )
 
   const acceptGitHubLink = useCallback(
@@ -1692,6 +1800,9 @@ function RowIcon({ row }: { row: RowEntry }): React.JSX.Element {
   if (row.kind === 'branch') {
     return <GitBranch className="size-3.5 shrink-0 text-muted-foreground" />
   }
+  if (row.kind === 'backlog') {
+    return <ListTodo className="size-3.5 shrink-0 text-muted-foreground" strokeWidth={1.75} />
+  }
   return <LinearIcon className="size-3.5 shrink-0 text-muted-foreground" />
 }
 
@@ -1711,6 +1822,9 @@ function SelectionIcon({ kind }: { kind: SmartWorkspaceNameSelection['kind'] }):
   }
   if (kind === 'jira') {
     return <JiraIcon className="size-3.5 shrink-0 text-muted-foreground" />
+  }
+  if (kind === 'backlog') {
+    return <ListTodo className="size-3.5 shrink-0 text-muted-foreground" strokeWidth={1.75} />
   }
   return <LinearIcon className="size-3.5 shrink-0 text-muted-foreground" />
 }
@@ -1765,6 +1879,13 @@ function RowLabel({ row }: { row: RowEntry }): React.JSX.Element {
   }
   if (row.kind === 'branch') {
     return <span className="min-w-0 truncate font-mono text-[11px]">{row.refName}</span>
+  }
+  if (row.kind === 'backlog') {
+    return (
+      <span className="min-w-0 truncate">
+        <span className="font-medium text-foreground">{row.task.id}</span> {row.task.title}
+      </span>
+    )
   }
   return (
     <span className="min-w-0 truncate">

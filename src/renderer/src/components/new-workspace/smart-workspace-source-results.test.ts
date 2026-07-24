@@ -96,6 +96,8 @@ describe('Branch source results', () => {
       linearIssues: [],
       gitlabAvailable: false,
       linearAvailable: false,
+      backlogAvailable: false,
+      backlogTasks: [],
       resultLimit: 12
     })
 
@@ -154,6 +156,8 @@ describe('Branch source results', () => {
       linearIssues: [],
       gitlabAvailable: false,
       linearAvailable: false,
+      backlogAvailable: false,
+      backlogTasks: [],
       resultLimit: 12
     })
 
@@ -181,6 +185,8 @@ describe('Branch source results', () => {
       },
       gitlabAvailable: false,
       linearAvailable: true,
+      backlogAvailable: false,
+      backlogTasks: [],
       resultLimit: 12
     })
 
@@ -206,6 +212,8 @@ describe('Branch source results', () => {
       linearIssues: [],
       gitlabAvailable: false,
       linearAvailable: false,
+      backlogAvailable: false,
+      backlogTasks: [],
       resultLimit: 12
     })
 
@@ -228,6 +236,8 @@ describe('Branch source results', () => {
       linearIssues: [],
       gitlabAvailable: true,
       linearAvailable: false,
+      backlogAvailable: false,
+      backlogTasks: [],
       resultLimit: 12
     })
 
@@ -248,6 +258,8 @@ describe('Branch source results', () => {
         linearIssues: { items: { id: 'not-an-array' } } as never,
         gitlabAvailable: false,
         linearAvailable: true,
+        backlogAvailable: false,
+        backlogTasks: [],
         resultLimit: 12
       })
     ).not.toThrow()
@@ -270,6 +282,8 @@ describe('Branch source results', () => {
         linearIssues: [],
         gitlabAvailable: false,
         linearAvailable: false,
+        backlogAvailable: false,
+        backlogTasks: [],
         resultLimit: 12
       })
     ).toEqual([])

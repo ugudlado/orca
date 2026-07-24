@@ -16,6 +16,7 @@ import { registerGitLabHandlers } from './gitlab'
 import { registerHostedReviewHandlers } from './hosted-review'
 import { registerLinearHandlers } from './linear'
 import { registerJiraHandlers } from './jira'
+import { registerBacklogHandlers } from './backlog'
 import { registerFeedbackHandlers } from './feedback'
 import { registerCrashReportingHandlers } from './crash-reporting'
 import { registerExportHandlers } from './export'
@@ -124,6 +125,8 @@ export function registerCoreHandlers(
   setTrustedClipboardRendererWebContentsId(mainWindowWebContentsId)
   setTrustedUIRendererWebContentsId(mainWindowWebContentsId)
   setAgentBrowserBridgeRef(runtime.getAgentBrowserBridge())
+  // Why: preload can hot-reload with new backlog channels while main still holds an older handler set.
+  registerBacklogHandlers()
   if (registered) {
     return
   }

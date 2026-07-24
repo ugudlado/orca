@@ -11,6 +11,7 @@ import type { HostedReviewSlice } from './slices/hosted-review'
 import type { LinearSlice } from './slices/linear'
 import type { PreflightSlice } from './slices/preflight'
 import type { JiraSlice } from './slices/jira'
+import type { BacklogSlice } from './slices/backlog'
 import type { EditorSlice } from './slices/editor'
 import type { StatsSlice } from './slices/stats'
 import type { MemorySlice } from './slices/memory'
@@ -52,6 +53,7 @@ export type AppState = RepoSlice &
   LinearSlice &
   PreflightSlice &
   JiraSlice &
+  BacklogSlice &
   EditorSlice &
   StatsSlice &
   MemorySlice &

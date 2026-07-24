@@ -25,11 +25,14 @@ import {
 } from '../tasks/smart-source-paste-intent'
 import { useSmartWorkspaceSource } from '../tasks/use-smart-workspace-source'
 import type { MobileComposerSource } from '../tasks/use-mobile-composer-source'
+import { applySmartWorkspaceSourceRowSelection } from '../tasks/smart-workspace-source-drawer-select'
 import { colors } from '../theme/mobile-theme'
 import { BottomDrawer } from './BottomDrawer'
-import { smartWorkspaceSourceDrawerStyles as styles } from './smart-workspace-source-drawer-styles'
 import { SmartSourceModeIcon } from './SmartSourceModeIcon'
 import { SmartWorkspaceSourceRow } from './SmartWorkspaceSourceRow'
+import { smartWorkspaceSourceDrawerStyles as styles } from './smart-workspace-source-drawer-styles'
+
+const EMPTY_BACKLOG_VISIBLE_PROJECT_IDS: readonly string[] = []
 
 // Why: match MobileSearchField — native autoFocus alone often fails to raise
 // the soft keyboard when the drawer is mid-present animation.
@@ -43,6 +46,8 @@ type Props = {
   repoId: string | null
   repos: readonly PasteRepoCandidate[]
   linearWorkspaceId?: string | null
+  backlogAvailable: boolean
+  backlogVisibleProjectIds?: readonly string[]
   sshReady: boolean
   onRepoChange: (repoId: string) => void
   onClose: () => void
@@ -56,6 +61,8 @@ export function SmartWorkspaceSourceDrawer({
   repoId,
   repos,
   linearWorkspaceId,
+  backlogAvailable = false,
+  backlogVisibleProjectIds = EMPTY_BACKLOG_VISIBLE_PROJECT_IDS,
   sshReady,
   onRepoChange,
   onClose
@@ -100,9 +107,10 @@ export function SmartWorkspaceSourceDrawer({
   // Snap the chosen mode back into the available set if availability changes.
   const effectiveMode = availableModes.includes(mode) ? mode : (availableModes[0] ?? 'text')
 
-  // Linear searches without a repo; every other provider/branch search needs a
+  // Linear/Backlog searches without a repo; every other provider/branch search needs a
   // connected repo-backed target.
-  const searchEnabled = visible && (effectiveMode === 'linear' || sshReady)
+  const searchEnabled =
+    visible && (effectiveMode === 'linear' || effectiveMode === 'backlog' || sshReady)
 
   const {
     rows,
@@ -121,32 +129,15 @@ export function SmartWorkspaceSourceDrawer({
     githubAvailable: availability.githubAvailable,
     gitlabAvailable: availability.gitlabAvailable,
     linearAvailable: availability.linearAvailable,
+    backlogAvailable,
+    backlogVisibleProjectIds,
     mrStateFilter,
     linearWorkspaceId,
     repos
   })
 
   function handleSelectRow(row: SourceRow): void {
-    switch (row.kind) {
-      case 'use-name':
-        composer.setName(row.name)
-        break
-      case 'create-branch':
-        composer.handleSmartCreateBranch(row.name)
-        break
-      case 'github':
-        composer.handleSmartGitHubItemSelect(row.item)
-        break
-      case 'gitlab':
-        composer.handleSmartGitLabItemSelect(row.item)
-        break
-      case 'branch':
-        composer.handleSmartBranchSelect(row.refName, row.localBranchName)
-        break
-      case 'linear':
-        composer.handleSmartLinearIssueSelect(row.issue)
-        break
-    }
+    applySmartWorkspaceSourceRowSelection(row, composer)
     onClose()
   }
 

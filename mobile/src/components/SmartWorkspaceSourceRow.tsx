@@ -57,6 +57,13 @@ function resolveRowContent(row: SourceRow): RowContent {
         subtitle: `${row.issue.identifier} · ${row.issue.team?.key ?? 'Linear'}`,
         status: row.issue.state?.name
       }
+    case 'backlog':
+      return {
+        icon: <TaskProviderLogo provider="backlog" size={16} color={colors.textSecondary} />,
+        title: row.task.title,
+        subtitle: `${row.task.id} · ${row.task.projectId}`,
+        status: row.task.status
+      }
     default:
       return { icon: <CaseSensitive size={16} color={colors.textSecondary} />, title: '' }
   }

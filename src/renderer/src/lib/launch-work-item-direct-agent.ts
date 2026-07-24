@@ -37,6 +37,7 @@ export function buildDirectWorkItemAgentStartupPlan(args: {
   /** Why: SSH remotes deploy the CLI shim as plain `orca`, so the Linux-only
    * `orca-ide` rename must not be applied for remote launches. */
   isRemote?: boolean
+  extraAgentEnv?: Record<string, string>
 }): {
   startupPlan: AgentStartupPlan | null
   draftLaunchedNatively: boolean
@@ -50,7 +51,10 @@ export function buildDirectWorkItemAgentStartupPlan(args: {
     args.agentArgs === undefined
       ? resolveTuiAgentLaunchArgs(args.agent, args.settings?.agentDefaultArgs)
       : args.agentArgs
-  const effectiveAgentEnv = resolveTuiAgentLaunchEnv(args.agent, args.settings?.agentDefaultEnv)
+  const effectiveAgentEnv = {
+    ...resolveTuiAgentLaunchEnv(args.agent, args.settings?.agentDefaultEnv),
+    ...args.extraAgentEnv
+  }
   const sessionOptions = resolveNativeChatSessionOptionDefaults(
     args.settings?.nativeChatSessionOptions,
     args.agent
