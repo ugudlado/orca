@@ -2,12 +2,17 @@ import { StyleSheet } from 'react-native'
 import { colors, radii, spacing, typography } from '../theme/mobile-theme'
 
 export const smartWorkspaceSourceDrawerStyles = StyleSheet.create({
+  root: {
+    flex: 1,
+    minHeight: 0
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: spacing.xs,
-    paddingBottom: spacing.sm
+    paddingBottom: spacing.sm,
+    flexShrink: 0
   },
   title: {
     fontSize: 15,
@@ -19,22 +24,47 @@ export const smartWorkspaceSourceDrawerStyles = StyleSheet.create({
     fontWeight: '600',
     color: colors.accentBlue
   },
+  results: {
+    flex: 1,
+    minHeight: 0
+  },
+  list: {
+    flex: 1,
+    backgroundColor: colors.bgPanel,
+    borderTopLeftRadius: radii.card,
+    borderTopRightRadius: radii.card,
+    overflow: 'hidden'
+  },
+  listContent: {
+    flexGrow: 1,
+    paddingBottom: spacing.sm
+  },
+  // Why: pin the dock to the sheet bottom so a flex-greedy FlatList cannot
+  // push the TextInput out of the fill frame (and under the keyboard).
+  dock: {
+    flexShrink: 0,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.borderSubtle,
+    backgroundColor: colors.bgBase,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.sm,
+    gap: spacing.sm,
+    zIndex: 2
+  },
   search: {
     backgroundColor: colors.bgRaised,
     color: colors.textPrimary,
     borderRadius: radii.input,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.sm + 2,
     fontSize: typography.bodySize,
     borderWidth: 1,
-    borderColor: colors.borderSubtle,
-    marginBottom: spacing.sm
+    borderColor: colors.borderSubtle
   },
   tabRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: spacing.xs,
-    marginBottom: spacing.sm
+    gap: spacing.xs
   },
   tab: {
     flexDirection: 'row',
@@ -60,8 +90,8 @@ export const smartWorkspaceSourceDrawerStyles = StyleSheet.create({
   },
   chipRow: {
     flexDirection: 'row',
-    gap: spacing.xs,
-    marginBottom: spacing.sm
+    flexWrap: 'wrap',
+    gap: spacing.xs
   },
   chip: {
     paddingHorizontal: spacing.md,
@@ -135,13 +165,6 @@ export const smartWorkspaceSourceDrawerStyles = StyleSheet.create({
     color: colors.statusRed,
     paddingHorizontal: spacing.xs,
     paddingBottom: spacing.sm
-  },
-  list: {
-    backgroundColor: colors.bgPanel,
-    borderRadius: radii.card,
-    overflow: 'hidden',
-    maxHeight: 420,
-    flexGrow: 0
   },
   loading: {
     paddingVertical: spacing.lg,

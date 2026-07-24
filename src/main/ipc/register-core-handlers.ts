@@ -185,7 +185,7 @@ export function registerCoreHandlers(
     onBeforeSignOut: lifecycleOptions.onBeforeOrcaProfileSignOut
   })
   registerBrowserHandlers()
-  registerShellHandlers()
+  registerShellHandlers(store)
   registerPetHandlers()
   registerSessionHandlers(store)
   registerUIHandlers(store)

@@ -184,7 +184,6 @@ import {
   readLinearBoardIssueDragData,
   writeLinearBoardIssueDragData
 } from '@/lib/linear-board-drag-payload'
-import { isGitRepoKind } from '../../../shared/repo-kind'
 import { getRepoExecutionHostId } from '../../../shared/execution-host'
 import { projectHostSetupProjectionFromRepos } from '../../../shared/project-host-setup-projection'
 import { TASK_SOURCE_CONTEXT_RUNTIME_CAPABILITY } from '../../../shared/protocol-version'
@@ -243,6 +242,7 @@ import { findTaskPageJiraIssue } from '@/components/task-page-jira-cache-selecto
 import { getRepoBackedTaskEmptyState } from '@/components/task-page-empty-state'
 import {
   getDefaultTaskRepoSelection,
+  getTaskEligibleRepos,
   getTaskProjectPickerGroups,
   normalizeTaskRepoSelection
 } from '@/components/task-page-default-repo-selection'
@@ -3160,7 +3160,7 @@ export default function TaskPage(): React.JSX.Element {
   const jiraConnected = jiraStatusCurrent && jiraStatus.connected
   const backlogConnected = backlogStatusCurrent && backlogStatus.connected
   const submitShortcutLabel = getScreenSubmitShortcutLabel()
-  const eligibleRepos = useMemo(() => repos.filter((repo) => isGitRepoKind(repo)), [repos])
+  const eligibleRepos = useMemo(() => getTaskEligibleRepos(repos), [repos])
 
   // Why: initial selection precedence — explicit preselection > persisted defaultRepoSelection > all eligible; preselection wins so "open tasks for this repo" lands single-repo.
   const resolvedInitialSelection = useMemo<ReadonlySet<string>>(() => {
@@ -8719,7 +8719,8 @@ export default function TaskPage(): React.JSX.Element {
                             workspaceId={selectedLinearWorkspaceId ?? null}
                             isAllWorkspaces={selectedLinearWorkspaceId === 'all'}
                             primaryTeam={linearAttributePrimaryTeam}
-                            selectedTeamCount={linearTeamSelection.size}
+                            selectedTeamIds={[...linearTeamSelection]}
+                            availableTeams={linearTeamOptions}
                             settings={linearTaskSourceContext ?? settings}
                           />
                         ) : null}

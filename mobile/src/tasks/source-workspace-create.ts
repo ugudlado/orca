@@ -7,6 +7,7 @@ import type {
 import { resolveMobileWorkspaceCreateName } from './mobile-workspace-name'
 import type { WorkspaceAgentChoice } from './workspace-agent-selection'
 import {
+  agentLaunchCreateFields,
   buildTaskWorkspaceCreateParams,
   type WorkspaceCreateSetupDecision,
   type WorkspaceCreateTaskItem
@@ -19,12 +20,10 @@ import {
 import { getBacklogTask } from './backlog-mobile-rpc'
 import { createWorktreeWithNameRetry, type WorktreeCreateResult } from './worktree-create-retry'
 
-// The agent bundle the modal already resolved: the choice drives
-// buildTaskWorkspaceCreateParams for work-item sources; the explicit launch
-// command is used for branch sources (which have no work-item URL to seed the draft).
+// The agent bundle the modal resolved: `choice` drives launch resolution — the
+// host applies the agent's launch args (permission flags) and shell quoting.
 export type WorkspaceCreateAgentBundle = {
   choice: WorkspaceAgentChoice
-  startupCommand: string | undefined
 }
 
 export type CreateWorkspaceFromComposerArgs = {
@@ -215,9 +214,7 @@ async function createBranchWorkspace(args: {
   const createdWithAgentId = agent.choice === 'blank' ? undefined : agent.choice
   const comment = note?.trim()
   const applyCommon = (params: Record<string, unknown>): Record<string, unknown> => {
-    if (createdWithAgentId) {
-      params.createdWithAgent = createdWithAgentId
-    }
+    Object.assign(params, agentLaunchCreateFields(createdWithAgentId))
     if (comment) {
       params.comment = comment
     }
@@ -243,8 +240,7 @@ async function createBranchWorkspace(args: {
           name,
           setupDecision,
           baseBranch: selection.refName,
-          branchNameOverride: selection.localBranchName,
-          startupCommand: agent.startupCommand
+          branchNameOverride: selection.localBranchName
         })
     })
   }
@@ -264,8 +260,7 @@ async function createBranchWorkspace(args: {
         repo: `id:${targetRepoId}`,
         name: candidate,
         setupDecision,
-        baseBranch: selection.baseBranch,
-        startupCommand: agent.startupCommand
+        baseBranch: selection.baseBranch
       }
       if (selection.branchNameOverride) {
         params.branchNameOverride = candidate
@@ -302,10 +297,7 @@ async function createNewBranchWorkspace(args: {
         name: candidate,
         setupDecision,
         branchNameOverride: candidate,
-        startupCommand: agent.startupCommand
-      }
-      if (createdWithAgentId) {
-        params.createdWithAgent = createdWithAgentId
+        ...agentLaunchCreateFields(createdWithAgentId)
       }
       if (comment) {
         params.comment = comment
