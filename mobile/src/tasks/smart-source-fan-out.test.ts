@@ -49,6 +49,7 @@ describe('fanOutSmartSearch', () => {
     )
     const result = await fanOutSmartSearch({ client, ...smartArgs })
     expect(calls.map((c) => c.method).sort()).toEqual([
+      'backlog.listTasks',
       'github.listWorkItems',
       'gitlab.listWorkItems',
       'linear.searchIssues',

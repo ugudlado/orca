@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { ExternalLink, Github, Terminal } from 'lucide-react'
+import { ExternalLink, Github, ListTodo, Terminal } from 'lucide-react'
 import { LinearIcon } from '@/components/icons/LinearIcon'
 import { Button } from '@/components/ui/button'
 import { LinearApiKeyDialog } from '@/components/linear-api-key-dialog'
+import { BacklogConnectDialog } from '@/components/backlog-connect-dialog'
 import { useAppStore } from '@/store'
 import { IntegrationStatusPill } from '@/components/integration-status-pill'
 import { cn } from '@/lib/utils'
@@ -217,6 +218,84 @@ export function LinearRow(props: { compact?: boolean } = {}): React.JSX.Element 
   )
 }
 
+export function BacklogRow(props: { compact?: boolean } = {}): React.JSX.Element {
+  const { compact = false } = props
+  const backlogStatus = useAppStore((s) => s.backlogStatus)
+  const checkBacklogConnection = useAppStore((s) => s.checkBacklogConnection)
+
+  const [dialogOpen, setDialogOpen] = useState(false)
+
+  return (
+    <>
+      <div className="rounded-xl border border-border bg-muted/20">
+        <div className={cn(compact ? 'flex flex-col gap-3 p-4' : 'flex items-start gap-4 p-5')}>
+          <div className={cn('flex items-start gap-3', compact ? '' : 'gap-4 flex-1 min-w-0')}>
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-border bg-background text-foreground">
+              <ListTodo className="size-5" strokeWidth={1.75} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-[15px] font-semibold leading-tight text-foreground">
+                  {translate(
+                    'auto.components.onboarding.IntegrationsStep.backlog_title',
+                    'Backlog'
+                  )}
+                </h3>
+                {backlogStatus.connected ? (
+                  <IntegrationStatusPill tone="connected">
+                    {translate(
+                      'auto.components.onboarding.IntegrationsStep.c91a5782f1',
+                      'Connected'
+                    )}
+                  </IntegrationStatusPill>
+                ) : null}
+              </div>
+              <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
+                {backlogStatus.connected
+                  ? translate(
+                      'auto.components.onboarding.IntegrationsStep.backlog_connected_description',
+                      'Connected to {{server}}',
+                      { server: backlogStatus.serverUrl ?? 'Backlog server' }
+                    )
+                  : translate(
+                      'auto.components.onboarding.IntegrationsStep.backlog_disconnected_description',
+                      'Browse tasks from a self-hosted Backlog server.'
+                    )}
+              </p>
+            </div>
+          </div>
+          <div className={cn('flex items-center gap-2', compact ? 'flex-wrap' : 'shrink-0')}>
+            {backlogStatus.connected ? (
+              <Button variant="outline" size="sm" onClick={() => setDialogOpen(true)}>
+                {translate('auto.components.onboarding.IntegrationsStep.backlog_manage', 'Manage')}
+              </Button>
+            ) : (
+              <Button size="sm" onClick={() => setDialogOpen(true)}>
+                {translate(
+                  'auto.components.onboarding.IntegrationsStep.backlog_connect',
+                  'Connect Backlog'
+                )}
+              </Button>
+            )}
+            {!backlogStatus.connected ? (
+              <Button variant="ghost" size="sm" onClick={() => void checkBacklogConnection()}>
+                {translate('auto.components.onboarding.IntegrationsStep.80e3ce0bc9', 'Re-check')}
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+
+      <BacklogConnectDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        overlayClassName="z-[110]"
+        contentClassName="z-[120]"
+      />
+    </>
+  )
+}
+
 const CAPABILITIES = [
   'Start a workspace from any GitHub issue or pull request, prefilled with its title and context',
   'Browse GitHub issues and pull requests in the Tasks view without leaving Orca',
@@ -244,6 +323,7 @@ export function IntegrationsStep(): React.JSX.Element {
 
       <div className="space-y-3">
         <GitHubRow />
+        <BacklogRow />
         <div className="mt-4 rounded-xl border border-border bg-muted/10 px-5 py-4">
           <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
             <span className="text-[14px] font-medium text-foreground/70">
