@@ -2,15 +2,9 @@
 // docs/orchestrator-integration-design.md). Kept side-effect-free and separate from the
 // spawn call (run-orchestrator-workflow.ts) so the shell-safety invariants below are
 // unit-testable without a PTY/Electron harness.
-export const ORCHESTRATOR_WORKFLOW_SCHEMAS = [
-  'feature',
-  'bugfix',
-  'patch',
-  'design',
-  'implement'
-] as const
-
-export type OrchestratorWorkflowSchema = (typeof ORCHESTRATOR_WORKFLOW_SCHEMAS)[number]
+// Why: schema names are discovered from workflows/*.yaml filenames on disk, not a
+// closed literal union — validate at this trust boundary same as ticketId below.
+export type OrchestratorWorkflowSchema = string
 
 export type BuildOrchestratorRunCommandArgs = {
   ticketId: string
@@ -34,6 +28,10 @@ export type OrchestratorRunCommand = {
 // POSIX shells and cmd/PowerShell rather than attempting per-shell quoting.
 const SAFE_TICKET_ID = /^[A-Za-z0-9._-]+$/
 
+// Why: schema names are now discovered from filenames on disk (list-orchestrator-workflow-
+// schemas.ts), a remote/local-fs trust boundary same as ticketId — same charset applies.
+const SAFE_SCHEMA_NAME = /^[A-Za-z0-9._-]+$/
+
 export function buildOrchestratorRunCommand({
   ticketId,
   schema,
@@ -42,6 +40,11 @@ export function buildOrchestratorRunCommand({
   if (!SAFE_TICKET_ID.test(ticketId)) {
     throw new Error(
       `Refusing to run workflow: ticket id contains unsupported characters (${JSON.stringify(ticketId)})`
+    )
+  }
+  if (!SAFE_SCHEMA_NAME.test(schema)) {
+    throw new Error(
+      `Refusing to run workflow: schema contains unsupported characters (${JSON.stringify(schema)})`
     )
   }
   const command = `orchestrator run ${ticketId} --schema ${schema}`

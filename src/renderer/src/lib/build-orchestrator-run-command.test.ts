@@ -41,6 +41,17 @@ describe('buildOrchestratorRunCommand', () => {
     ).not.toThrow()
   })
 
+  it('throws on schema names with shell metacharacters — filenames are a trust boundary too', () => {
+    for (const schema of ['feature; rm -rf ~', 'a`b`', '$(x)', 'a b', 'a|b', '']) {
+      expect(() => buildOrchestratorRunCommand({ ticketId: 'ORC-117', schema })).toThrow(
+        /unsupported characters/
+      )
+    }
+    expect(() =>
+      buildOrchestratorRunCommand({ ticketId: 'ORC-117', schema: 'my.schema_v2' })
+    ).not.toThrow()
+  })
+
   it('never references orchestrator step names or state-file paths — boundary rule', () => {
     const result = buildOrchestratorRunCommand({
       ticketId: 'ORC-117',

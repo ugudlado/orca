@@ -4753,7 +4753,9 @@ const api = {
       ) => callback(payload)
       ipcRenderer.on('orchestrator:event', listener)
       return () => ipcRenderer.removeListener('orchestrator:event', listener)
-    }
+    },
+    listWorkflowSchemas: (cwd: string): Promise<string[]> =>
+      ipcRenderer.invoke('orchestrator:listWorkflowSchemas', cwd)
   },
 
   speech: {

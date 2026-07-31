@@ -3582,6 +3582,8 @@ export type PreloadApi = {
     getNotifyEndpoint: () => Promise<{ port: number; token: string }>
     /** Fires on each `{event, change_id, schema, reason, state_yaml_path}` notify payload. Opaque — do not interpret beyond these fields. */
     onEvent: (callback: (payload: OrchestratorNotifyEventPayload) => void) => () => void
+    /** Lists workflow schema names from `orchestrator config-path`'s workflows/*.yaml, resolved for cwd. Empty array if the CLI or config isn't available. */
+    listWorkflowSchemas: (cwd: string) => Promise<string[]>
   }
   mobile: {
     listNetworkInterfaces: () => Promise<{
