@@ -1,6 +1,6 @@
 import React from 'react'
 import { EllipsisVertical, ExternalLink, MessageSquare } from 'lucide-react'
-import type { BacklogTask } from '../../../shared/types'
+import type { BacklogTask, BacklogTaskUpdate } from '../../../shared/types'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -84,15 +84,20 @@ const PRIORITY_BADGE_CLASS: Record<NonNullable<BacklogTask['priority']>, string>
 type TaskPageBacklogTaskRowProps = {
   task: BacklogTask
   projectName?: string | null
+  availableStatuses: readonly string[]
   onOpen: (task: BacklogTask) => void
   onStart: (task: BacklogTask) => void
+  /** Inline status/priority edits — omit to fall back to read-only chips. */
+  onUpdateTask?: (task: BacklogTask, updates: BacklogTaskUpdate) => void
 }
 
 export function TaskPageBacklogTaskRow({
   task,
   projectName,
+  availableStatuses,
   onOpen,
-  onStart
+  onStart,
+  onUpdateTask
 }: TaskPageBacklogTaskRowProps): React.JSX.Element {
   const orchestratorEvent = useAppStore((state) => state.orchestratorEventByTaskId[task.id])
   const dismissOrchestratorEvent = useAppStore((state) => state.dismissOrchestratorEventForTask)
@@ -205,9 +210,31 @@ export function TaskPageBacklogTaskRow({
       </div>
 
       <div className="flex items-center">
-        <span className={backlogStatusChipClassName(task.status)}>
-          <span className="truncate">{task.status || '—'}</span>
-        </span>
+        {onUpdateTask && availableStatuses.length > 0 ? (
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                onClick={(event) => event.stopPropagation()}
+                className={backlogStatusChipClassName(task.status, 'cursor-pointer')}
+                aria-label={`Change status (currently ${task.status || 'none'})`}
+              >
+                <span className="truncate">{task.status || '—'}</span>
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" onClick={(event) => event.stopPropagation()}>
+              {availableStatuses.map((status) => (
+                <DropdownMenuItem key={status} onSelect={() => onUpdateTask(task, { status })}>
+                  {status}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <span className={backlogStatusChipClassName(task.status)}>
+            <span className="truncate">{task.status || '—'}</span>
+          </span>
+        )}
       </div>
 
       {task.updatedAt ? (

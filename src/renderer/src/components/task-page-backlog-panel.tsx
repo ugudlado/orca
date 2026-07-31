@@ -344,8 +344,22 @@ export function TaskPageBacklogPanel({
             tasksLoading={tasksLoading}
             tasksError={tasksError}
             projectName={selectedProject?.name || selectedProject?.path}
+            availableStatuses={availableStatuses}
             onOpen={(opened) => setSelectedTaskId(opened.id)}
             onStart={onUse}
+            onUpdateTask={(task, updates) => {
+              if (!selectedProjectId || !updates.status) {
+                return
+              }
+              const status = updates.status
+              void updateTask(selectedProjectId, task.id, { status }).then((result) => {
+                if (result.ok) {
+                  setTasks((current) =>
+                    current.map((t) => (t.id === task.id ? { ...t, status } : t))
+                  )
+                }
+              })
+            }}
           />
         )}
       </div>

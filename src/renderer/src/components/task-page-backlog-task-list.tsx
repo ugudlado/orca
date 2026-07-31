@@ -1,6 +1,6 @@
 import React from 'react'
 import { LoaderCircle } from 'lucide-react'
-import type { BacklogTask } from '../../../shared/types'
+import type { BacklogTask, BacklogTaskUpdate } from '../../../shared/types'
 import {
   BACKLOG_TASK_GRID_CLASS,
   BACKLOG_TASK_STICKY_ID_HEADER_CLASS,
@@ -16,8 +16,10 @@ type TaskPageBacklogTaskListProps = {
   tasksLoading: boolean
   tasksError: string | null
   projectName: string | undefined
+  availableStatuses: readonly string[]
   onOpen: (task: BacklogTask) => void
   onStart: (task: BacklogTask) => void
+  onUpdateTask?: (task: BacklogTask, updates: BacklogTaskUpdate) => void
 }
 
 export function TaskPageBacklogTaskList({
@@ -26,8 +28,10 @@ export function TaskPageBacklogTaskList({
   tasksLoading,
   tasksError,
   projectName,
+  availableStatuses,
   onOpen,
-  onStart
+  onStart,
+  onUpdateTask
 }: TaskPageBacklogTaskListProps): React.JSX.Element {
   return (
     <div
@@ -82,8 +86,10 @@ export function TaskPageBacklogTaskList({
               key={task.id}
               task={task}
               projectName={projectName}
+              availableStatuses={availableStatuses}
               onOpen={onOpen}
               onStart={onStart}
+              onUpdateTask={onUpdateTask}
             />
           ))}
         </>
