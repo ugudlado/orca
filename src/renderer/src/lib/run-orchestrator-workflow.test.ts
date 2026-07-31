@@ -56,6 +56,19 @@ describe('runOrchestratorWorkflow', () => {
     expect(mockState.createTab).not.toHaveBeenCalled()
   })
 
+  it('returns invalid-ticket-id (no tab) for shell-unsafe task ids', async () => {
+    mockState = createStoreState({
+      'repo-1': [{ id: 'wt-main', isMainWorktree: true }]
+    })
+    const result = await runOrchestratorWorkflow({
+      task: { id: 'ORC-1; rm -rf ~' },
+      repoId: 'repo-1',
+      schema: 'feature'
+    })
+    expect(result).toEqual({ ok: false, reason: 'invalid-ticket-id' })
+    expect(mockState.createTab).not.toHaveBeenCalled()
+  })
+
   it('spawns on the main worktree when one is marked isMainWorktree', async () => {
     mockState = createStoreState({
       'repo-1': [

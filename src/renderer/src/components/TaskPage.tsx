@@ -8034,10 +8034,15 @@ export default function TaskPage(): React.JSX.Element {
       void runOrchestratorWorkflow({ task, repoId: repo.id, schema }).then((result) => {
         if (!result.ok) {
           toast.error(
-            translate(
-              'auto.components.TaskPage.orchestratorRunNoWorktree',
-              'Open a workspace for this repo before running an orchestrator workflow.'
-            )
+            result.reason === 'invalid-ticket-id'
+              ? translate(
+                  'auto.components.TaskPage.orchestratorRunInvalidTicketId',
+                  'This task id contains characters that cannot be passed to the orchestrator CLI.'
+                )
+              : translate(
+                  'auto.components.TaskPage.orchestratorRunNoWorktree',
+                  'Open a workspace for this repo before running an orchestrator workflow.'
+                )
           )
         }
       })

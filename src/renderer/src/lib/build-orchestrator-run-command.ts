@@ -29,11 +29,21 @@ export type OrchestratorRunCommand = {
  * state-file contents — per the integration boundary, orca only shells out and consumes the
  * one opaque notify JSON payload.
  */
+// Why: ticket ids come from the backlog service (a remote trust boundary) and are
+// interpolated into a shell command — restrict to characters that are inert in
+// POSIX shells and cmd/PowerShell rather than attempting per-shell quoting.
+const SAFE_TICKET_ID = /^[A-Za-z0-9._-]+$/
+
 export function buildOrchestratorRunCommand({
   ticketId,
   schema,
   notifyEndpoint
 }: BuildOrchestratorRunCommandArgs): OrchestratorRunCommand {
+  if (!SAFE_TICKET_ID.test(ticketId)) {
+    throw new Error(
+      `Refusing to run workflow: ticket id contains unsupported characters (${JSON.stringify(ticketId)})`
+    )
+  }
   const command = `orchestrator run ${ticketId} --schema ${schema}`
   if (!notifyEndpoint) {
     return { command, env: {} }

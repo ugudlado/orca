@@ -30,6 +30,17 @@ describe('buildOrchestratorRunCommand', () => {
     expect(result.env.ORCHESTRATOR_NOTIFY_CMD).not.toMatch(/['"]/)
   })
 
+  it('throws on ticket ids with shell metacharacters — backlog is a trust boundary', () => {
+    for (const ticketId of ['ORC-1; rm -rf ~', 'a`b`', '$(x)', 'a b', 'a|b', '']) {
+      expect(() => buildOrchestratorRunCommand({ ticketId, schema: 'feature' })).toThrow(
+        /unsupported characters/
+      )
+    }
+    expect(() =>
+      buildOrchestratorRunCommand({ ticketId: 'ORC-117.a_b', schema: 'feature' })
+    ).not.toThrow()
+  })
+
   it('never references orchestrator step names or state-file paths — boundary rule', () => {
     const result = buildOrchestratorRunCommand({
       ticketId: 'ORC-117',

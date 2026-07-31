@@ -19,7 +19,7 @@ export type RunOrchestratorWorkflowArgs = {
 
 export type RunOrchestratorWorkflowResult =
   | { ok: true; tabId: string }
-  | { ok: false; reason: 'no-worktree' }
+  | { ok: false; reason: 'no-worktree' | 'invalid-ticket-id' }
 
 function getDefaultWorktree(worktrees: readonly Worktree[]): Worktree | null {
   return worktrees.find((worktree) => worktree.isMainWorktree) ?? worktrees[0] ?? null
@@ -47,11 +47,19 @@ export async function runOrchestratorWorkflow({
     ? await window.api.orchestrator.getNotifyEndpoint().catch(() => undefined)
     : undefined
 
-  const { command, env } = buildOrchestratorRunCommand({
-    ticketId: task.id,
-    schema,
-    notifyEndpoint
-  })
+  let command: string
+  let env: Record<string, string>
+  try {
+    ;({ command, env } = buildOrchestratorRunCommand({
+      ticketId: task.id,
+      schema,
+      notifyEndpoint
+    }))
+  } catch {
+    // Why: ticket ids come from the backlog service; a shell-unsafe id must surface as a
+    // toast, not an unhandled rejection (the builder throws to keep its invariant testable).
+    return { ok: false, reason: 'invalid-ticket-id' }
+  }
 
   const tab = store.createTab(worktree.id, undefined, undefined, {
     quickCommandLabel: `orchestrator ${schema}`
