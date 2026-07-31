@@ -42,6 +42,7 @@ import { zoomLevelToPercent } from '@/components/settings/SettingsConstants'
 import { stepUIZoomLevel } from '../../../shared/ui-zoom-level'
 import { dispatchZoomLevelChanged } from '@/lib/zoom-events'
 import { canShowRightSidebarForView } from '@/lib/right-sidebar-visibility'
+import { matchOrchestratorEventToTask } from '@/lib/match-orchestrator-event-to-task'
 import { resolveZoomTarget } from './resolve-zoom-target'
 import {
   handleSwitchRecentTab,
@@ -2182,6 +2183,24 @@ export function useIpcEvents(): void {
     })
     if (unsubscribeNewSimulatorTab) {
       unsubs.push(unsubscribeNewSimulatorTab)
+    }
+
+    // Why: additive IPC surface (matches onNewSimulatorTab/onAutoAttach above) — guard so older
+    // or partial preload mocks in tests don't crash the hook when it's absent. Badge-only: the
+    // design boundary forbids interpreting orchestrator event/schema/reason beyond passing them
+    // to the matched ticket row. Drops silently when no loaded task matches.
+    const unsubscribeOrchestratorEvent = window.api.orchestrator?.onEvent((event) => {
+      const store = useAppStore.getState()
+      const loadedTasks = Object.values(store.backlogTasksByProject).flatMap(
+        (entry) => entry.data ?? []
+      )
+      const matched = matchOrchestratorEventToTask(event, loadedTasks)
+      if (matched) {
+        store.setOrchestratorEventForTask(matched.id, event)
+      }
+    })
+    if (unsubscribeOrchestratorEvent) {
+      unsubs.push(unsubscribeOrchestratorEvent)
     }
 
     const unsubscribeEmulatorAutoAttach = window.api.emulator?.onAutoAttach(

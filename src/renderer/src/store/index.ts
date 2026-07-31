@@ -32,6 +32,7 @@ import { createDetectedAgentsSlice } from './slices/detected-agents'
 import { createRuntimeDetectedAgentsSlice } from './slices/runtime-detected-agents'
 import { createWorktreeNavHistorySlice } from './slices/worktree-nav-history'
 import { createDictationSlice } from './slices/dictation'
+import { createOrchestratorEventsSlice } from './slices/orchestrator-events'
 import { createWorkspaceCleanupSlice } from './slices/workspace-cleanup'
 import { createRuntimeStatusSlice } from './slices/runtime-status'
 import { createPullRequestGenerationSlice } from './slices/pull-request-generation'
@@ -86,6 +87,7 @@ export const useAppStore = create<AppState>()((...a) => {
     ...createRuntimeDetectedAgentsSlice(...a),
     ...createWorktreeNavHistorySlice(...a),
     ...createDictationSlice(...a),
+    ...createOrchestratorEventsSlice(...a),
     ...createWorkspaceCleanupSlice(...a),
     ...createRuntimeStatusSlice(...a),
     ...createPullRequestGenerationSlice(...a),
