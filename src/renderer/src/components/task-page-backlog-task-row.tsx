@@ -1,14 +1,11 @@
 import React from 'react'
-import { EllipsisVertical, ExternalLink, MessageSquare, Play } from 'lucide-react'
+import { EllipsisVertical, ExternalLink, MessageSquare } from 'lucide-react'
 import type { BacklogTask } from '../../../shared/types'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -16,10 +13,6 @@ import { backlogStatusChipClassName } from '@/lib/backlog-status-chip'
 import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'
 import { useAppStore } from '@/store'
-import {
-  ORCHESTRATOR_WORKFLOW_SCHEMAS,
-  type OrchestratorWorkflowSchema
-} from '@/lib/build-orchestrator-run-command'
 
 /** Match GitHub issue list column rhythm (ID · title · assignee · status · updated · actions). */
 export const BACKLOG_TASK_GRID_CLASS =
@@ -93,15 +86,13 @@ type TaskPageBacklogTaskRowProps = {
   projectName?: string | null
   onOpen: (task: BacklogTask) => void
   onStart: (task: BacklogTask) => void
-  onRunWorkflow: (task: BacklogTask, schema: OrchestratorWorkflowSchema) => void
 }
 
 export function TaskPageBacklogTaskRow({
   task,
   projectName,
   onOpen,
-  onStart,
-  onRunWorkflow
+  onStart
 }: TaskPageBacklogTaskRowProps): React.JSX.Element {
   const orchestratorEvent = useAppStore((state) => state.orchestratorEventByTaskId[task.id])
   const dismissOrchestratorEvent = useAppStore((state) => state.dismissOrchestratorEventForTask)
@@ -268,19 +259,6 @@ export function TaskPageBacklogTaskRow({
               <ExternalLink className="size-4" />
               {translate('auto.components.TaskPage.c1d1600362', 'Open in browser')}
             </DropdownMenuItem>
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
-                <Play className="size-4" />
-                {translate('auto.components.TaskPage.runOrchestratorWorkflow', 'Run workflow…')}
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent>
-                {ORCHESTRATOR_WORKFLOW_SCHEMAS.map((schema) => (
-                  <DropdownMenuItem key={schema} onSelect={() => onRunWorkflow(task, schema)}>
-                    {schema}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

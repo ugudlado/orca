@@ -161,11 +161,6 @@ import {
 import JiraIssueWorkspace from '@/components/JiraIssueWorkspace'
 import { TaskPageJiraIssueList } from '@/components/task-page-jira-issue-list'
 import { TaskPageBacklogPanel } from '@/components/task-page-backlog-panel'
-import { launchWorkItemDirect } from '@/lib/launch-work-item-direct'
-import { runOrchestratorWorkflow } from '@/lib/run-orchestrator-workflow'
-import type { OrchestratorWorkflowSchema } from '@/lib/build-orchestrator-run-command'
-import { resolveBacklogHostHostname } from '@/lib/backlog-launch-env'
-import { buildBacklogStartWorkTaskUpdate } from '../../../shared/backlog-start-work-update'
 import { buildBacklogWorkspaceSource } from '../../../shared/new-workspace/workspace-source'
 import {
   getSingleJiraProjectScope,
@@ -7984,70 +7979,9 @@ export default function TaskPage(): React.JSX.Element {
   const handleUseBacklogTask = useCallback(
     (task: BacklogTask): void => {
       useAppStore.getState().recordFeatureInteraction('backlog-tasks')
-      const repo = primaryRepo
-      if (!repo) {
-        openComposerForBacklogTask(task)
-        return
-      }
-      const pasteContent = `# ${task.id} ${task.title}\n\n${task.body}`
-      void launchWorkItemDirect({
-        item: {
-          provider: 'backlog',
-          type: 'issue',
-          number: 0,
-          title: task.title,
-          url: task.url,
-          pasteContent,
-          backlogTaskId: task.id,
-          backlogProjectId: task.projectId
-        },
-        repoId: repo.id,
-        launchSource: 'task_page',
-        telemetrySource: 'sidebar',
-        openModalFallback: () => openComposerForBacklogTask(task)
-      }).then(async (launched) => {
-        if (!launched) {
-          return
-        }
-        const assigneeUpdate = buildBacklogStartWorkTaskUpdate(resolveBacklogHostHostname())
-        const result = await updateBacklogTask(task.projectId, task.id, assigneeUpdate)
-        if (!result.ok) {
-          toast.error(result.error)
-        }
-      })
+      openComposerForBacklogTask(task)
     },
-    [openComposerForBacklogTask, primaryRepo, updateBacklogTask]
-  )
-
-  const handleRunOrchestratorWorkflow = useCallback(
-    (task: BacklogTask, schema: OrchestratorWorkflowSchema): void => {
-      const repo = primaryRepo
-      if (!repo) {
-        toast.error(
-          translate(
-            'auto.components.TaskPage.orchestratorRunNoRepo',
-            'Add a repo to this project before running an orchestrator workflow.'
-          )
-        )
-        return
-      }
-      void runOrchestratorWorkflow({ task, repoId: repo.id, schema }).then((result) => {
-        if (!result.ok) {
-          toast.error(
-            result.reason === 'invalid-ticket-id'
-              ? translate(
-                  'auto.components.TaskPage.orchestratorRunInvalidTicketId',
-                  'This task id contains characters that cannot be passed to the orchestrator CLI.'
-                )
-              : translate(
-                  'auto.components.TaskPage.orchestratorRunNoWorktree',
-                  'Open a workspace for this repo before running an orchestrator workflow.'
-                )
-          )
-        }
-      })
-    },
-    [primaryRepo]
+    [openComposerForBacklogTask]
   )
 
   const handleUseJiraItem = useCallback(
@@ -9972,7 +9906,6 @@ export default function TaskPage(): React.JSX.Element {
               visibleProjectIds={settings?.backlogVisibleProjectIds ?? []}
               onConnect={() => void checkBacklogConnection()}
               onUse={handleUseBacklogTask}
-              onRunWorkflow={handleRunOrchestratorWorkflow}
               listProjects={listBacklogProjects}
               listTasks={listBacklogTasks}
               updateTask={updateBacklogTask}
