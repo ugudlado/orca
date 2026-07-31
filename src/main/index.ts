@@ -213,6 +213,7 @@ import {
 } from './claude-accounts/live-pty-gate'
 import { StarNagService } from './star-nag/service'
 import { agentHookServer, type AgentHookProviderSessionIdentity } from './agent-hooks/server'
+import { orchestratorNotifyServer } from './orchestrator/notify-server'
 import { createHookProviderSessionInvalidator } from './agent-hooks/hook-provider-session-invalidation'
 import { wslHookRelayManager } from './agent-hooks/wsl-hook-relay-manager'
 import { maybeAutoRenameBranchOnFirstWork } from './agent-hooks/first-work-branch-rename'
@@ -1288,6 +1289,7 @@ function openMainWindow(): BrowserWindow {
     agentHookServer.setListener(null)
     agentHookServer.setPaneStatusClearListener(null)
     setMigrationUnsupportedPtyListener(null)
+    orchestratorNotifyServer.setListener(() => {})
     // Why: stop the spinner timer here — it would fire into destroyed webContents, and per-pane teardown may never run for restored-but-untorn panes.
     stopAllSyntheticTitleSpinners()
   })
@@ -1302,6 +1304,11 @@ function openMainWindow(): BrowserWindow {
   // Why: user is back on show/restore, so clear the tray attention dot set while hidden (see notifications.ts).
   window.on('show', () => setTrayAttention(false))
   window.on('restore', () => setTrayAttention(false))
+  orchestratorNotifyServer.setListener((payload) => {
+    if (!window.isDestroyed()) {
+      window.webContents.send('orchestrator:event', payload)
+    }
+  })
   agentHookServer.setListener(
     ({
       paneKey,

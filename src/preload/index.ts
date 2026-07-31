@@ -21,6 +21,7 @@ import type {
   SleepingAgentLaunchConfig
 } from '../shared/agent-session-resume'
 import type { MobileRelayStatus } from '../shared/mobile-relay-status'
+import type { OrchestratorNotifyEventPayload } from '../shared/orchestrator-cli-notify'
 import type { MobilePairingConnectionMode } from '../shared/mobile-pairing-connection-mode'
 import type {
   SshMutationExpectation,
@@ -4737,6 +4738,21 @@ const api = {
       ptyId?: string
     }): void => {
       ipcRenderer.send('agentStatus:transferPaneAuthority', args)
+    }
+  },
+
+  orchestrator: {
+    /** Loopback endpoint for ORCHESTRATOR_NOTIFY_CMD; starts the listener on first call. */
+    getNotifyEndpoint: (): Promise<{ port: number; token: string }> =>
+      ipcRenderer.invoke('orchestrator:getNotifyEndpoint'),
+    /** Fires on each `{event, change_id, schema, reason, state_yaml_path}` notify payload. Opaque — do not interpret beyond these fields. */
+    onEvent: (callback: (payload: OrchestratorNotifyEventPayload) => void): (() => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: OrchestratorNotifyEventPayload
+      ) => callback(payload)
+      ipcRenderer.on('orchestrator:event', listener)
+      return () => ipcRenderer.removeListener('orchestrator:event', listener)
     }
   },
 

@@ -46,6 +46,7 @@ import type {
   WriteTerminalRenderDesyncEvidenceResult
 } from '../shared/terminal-render-desync-evidence'
 import type { MobileRelayStatus } from '../shared/mobile-relay-status'
+import type { OrchestratorNotifyEventPayload } from '../shared/orchestrator-cli-notify'
 import type { MobilePairingConnectionMode } from '../shared/mobile-pairing-connection-mode'
 import type {
   SshMutationExpectation,
@@ -3575,6 +3576,12 @@ export type PreloadApi = {
       toPaneKey: string
       ptyId?: string
     }) => void
+  }
+  orchestrator: {
+    /** Loopback endpoint for ORCHESTRATOR_NOTIFY_CMD; starts the listener on first call. */
+    getNotifyEndpoint: () => Promise<{ port: number; token: string }>
+    /** Fires on each `{event, change_id, schema, reason, state_yaml_path}` notify payload. Opaque — do not interpret beyond these fields. */
+    onEvent: (callback: (payload: OrchestratorNotifyEventPayload) => void) => () => void
   }
   mobile: {
     listNetworkInterfaces: () => Promise<{
