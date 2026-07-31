@@ -294,6 +294,9 @@
             "f518e89aa5": "该项目已存在于那个配置文件中",
             "f03ae7f27b": "转移项目失败"
           }
+        },
+        "backlog": {
+          "connectSuperseded": "Backlog connection was superseded by a newer request."
         }
       }
     },
@@ -654,7 +657,8 @@
         "folderWorkspaceCreateFailedTitle": "文件夹工作区创建失败",
         "folderWorkspaceCreateFailedMessage": "无法创建文件夹工作区。请查看上方错误详情，然后重试。",
         "setupAgentStartupPolicySaveFailed": "保存设置启动行为失败",
-        "5f3d2c8a1b": "解析 MR 基础分支失败"
+        "5f3d2c8a1b": "解析 MR 基础分支失败",
+        "backlogLaunchEnvFailed": "Could not prepare Backlog agent credentials for this workspace."
       },
       "useGlobalFileDrop": {
         "38c9f034ff": "无法上传删除的文件。",
@@ -1835,10 +1839,12 @@
         "75a38d7df8": "GitHub data is temporarily unavailable. Its API may be down, rate-limited, or unreachable. Please try again shortly.",
         "noGithubSourceDetected": "No GitHub source detected for",
         "noGithubSourceDetectedHint": "it may have no GitHub remote, or the source could not be resolved.",
+        "orchestratorRunInvalidTicketId": "This task id contains characters that cannot be passed to the orchestrator CLI.",
         "orchestratorRunNoRepo": "Add a repo to this project before running an orchestrator workflow.",
         "orchestratorRunNoWorktree": "Open a workspace for this repo before running an orchestrator workflow.",
         "orchestratorEventBadgeLabel": "Orchestrator: {{event}}",
-        "runOrchestratorWorkflow": "Run workflow…"
+        "runOrchestratorWorkflow": "Run workflow…",
+        "backlog_source_label": "Backlog"
       },
       "Terminal": {
         "73768427cf": "关闭",
@@ -4206,7 +4212,8 @@
           "196c1b5362": "打开 GitLab 任务",
           "0ccba862b8": "打开 GitHub 任务",
           "fee535205b": "任务",
-          "d599269755": "从侧边栏隐藏"
+          "d599269755": "从侧边栏隐藏",
+          "open_backlog_tasks": "Open Backlog tasks"
         },
         "SidebarRepositoryFilterSection": {
           "d3a9c4cea1": "清除",
@@ -6983,7 +6990,9 @@
           "dd67a1b6e1": "在任务源选择器和侧边栏快捷方式中显示 GitLab。",
           "7c5d7fdc20": "GitLab",
           "1db47236cd": "在任务源选择器和侧边栏快捷方式中显示 GitHub。",
-          "e14063e727": "GitHub"
+          "e14063e727": "GitHub",
+          "backlog_label": "Backlog",
+          "backlog_description": "Show Backlog in the Tasks source picker and sidebar shortcuts."
         },
         "TerminalAppearanceSection": {
           "a14a427ae4": "窗格分隔线的厚度。",
@@ -9815,6 +9824,21 @@
             "logs": "插件日志",
             "development": "开发插件"
           }
+        },
+        "backlog": {
+          "integration": {
+            "remote_credentials": "Connect with your Backlog server URL and API token. Credentials are sent to the selected remote runtime and stored there with runtime-supported encryption.",
+            "local_credentials": "Connect with your Backlog server URL and API token. Credentials are stored locally and encrypted when local runtime storage supports it.",
+            "connected_description": "Connected to {{server}}",
+            "checking": "Checking Backlog access before showing setup actions.",
+            "disconnected": "Browse tasks from a self-hosted Backlog server.",
+            "connect": "Connect Backlog",
+            "disconnect_aria": "Disconnect Backlog",
+            "visible_projects": "Projects shown in Tasks",
+            "loading_projects": "Loading projects…",
+            "no_projects": "No projects returned from this server.",
+            "visible_projects_hint": "Leave all unchecked to show every project you can access."
+          }
         }
       },
       "right": {
@@ -11207,7 +11231,12 @@
           "a3bcf13694": "已连接",
           "d6e5dba05a": "登录",
           "0b4a7d23ab": "登录",
-          "a74c6d6b18": "未安装"
+          "a74c6d6b18": "未安装",
+          "backlog_title": "Backlog",
+          "backlog_connected_description": "Connected to {{server}}",
+          "backlog_disconnected_description": "Browse tasks from a self-hosted Backlog server.",
+          "backlog_manage": "Manage",
+          "backlog_connect": "Connect Backlog"
         },
         "NotificationStep": {
           "3bede04483": "发送测试通知",
@@ -13781,6 +13810,46 @@
               "chooseSource": "选择任务来源"
             }
           }
+        },
+        "page": {
+          "backlog": {
+            "connect_title": "Connect Backlog",
+            "connect_body": "Browse tasks from your Backlog server and start work in a workspace.",
+            "connect_cta": "Connect Backlog",
+            "hide": "Hide Backlog",
+            "project": "Project",
+            "project_placeholder": "Select project",
+            "assignee_ph": "Filter assignee",
+            "loading_statuses": "Loading project statuses…",
+            "no_status_filters": "No statuses configured for this project",
+            "header": "Backlog tasks",
+            "retry": "Retry",
+            "no_projects": "No visible Backlog projects. Choose projects in Settings → Integrations.",
+            "detail_title": "Backlog task",
+            "detail_description": "Preview and edit the selected Backlog task.",
+            "open_external": "Open in Backlog",
+            "close_detail": "Close",
+            "due_date": "Due date",
+            "blocked": "Blocked",
+            "priority": "Priority",
+            "milestone": "Milestone",
+            "epic": "Epic",
+            "dependencies": "Depends on",
+            "description": "Description",
+            "no_body": "No description.",
+            "no_tasks": "No tasks match filters.",
+            "no_quick_filter_tasks": "No tasks match the quick filters.",
+            "acceptance_criteria": "Acceptance criteria",
+            "implementation_notes": "Implementation notes",
+            "documentation": "Documentation",
+            "show_comments": "Show comments",
+            "no_comments": "No comments",
+            "comments": "Comments",
+            "loading_comments": "Loading…",
+            "created": "Created",
+            "updated": "Updated",
+            "title_required": "Title is required."
+          }
         }
       },
       "taskPageEmptyState": {
@@ -14051,6 +14120,20 @@
         "useManualTerminalWorktreeParking": {
           "cannotPark": "These terminals cannot be parked safely."
         }
+      },
+      "backlog": {
+        "connect": {
+          "dialog": {
+            "title": "Connect Backlog server",
+            "description": "Use your Backlog server URL and an API token to browse tasks.",
+            "server_url": "Server URL",
+            "token": "API token",
+            "token_placeholder": "Backlog API token",
+            "cancel": "Cancel",
+            "verifying": "Verifying…",
+            "connect": "Connect"
+          }
+        }
       }
     },
     "i18n": {
@@ -14081,6 +14164,18 @@
       },
       "webRuntimeSession": {
         "remoteHostDisconnected": "The workspace is not connected to a remote Orca host."
+      }
+    },
+    "renderer": {
+      "lib": {
+        "backlog": {
+          "launch": {
+            "env": {
+              "missing_url": "Backlog server URL is not configured.",
+              "localhost_remote": "Backlog uses a localhost URL but this workspace runs on a remote host. Remote agents may not reach Backlog unless the server URL is reachable from that host."
+            }
+          }
+        }
       }
     }
   },
