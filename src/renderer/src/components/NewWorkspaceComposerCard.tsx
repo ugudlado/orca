@@ -9,14 +9,18 @@ import {
   CornerDownLeft,
   FolderPlus,
   LoaderCircle,
+  Play,
   PlugZap,
-  Settings2
+  Settings
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import type { OrchestratorWorkflowSchema } from '@/lib/build-orchestrator-run-command'
 import { SettingsSwitch } from '@/components/settings/SettingsFormControls'
 import type RepoCombobox from '@/components/repo/RepoCombobox'
 import AgentCombobox from '@/components/agent/AgentCombobox'
+import { WorkflowSchemaCombobox } from '@/components/new-workspace/WorkflowSchemaCombobox'
 import { getAgentCatalog } from '@/lib/agent-catalog'
 import {
   DEFAULT_DISABLED_TUI_AGENTS,
@@ -135,6 +139,10 @@ type NewWorkspaceComposerCardProps = {
   projectError: string | null
   creating: boolean
   onCreate: () => void
+  /** When true and onRunWorkflow is set, the footer shows a "Run workflow" menu for backlog-linked tasks. */
+  showRunWorkflow?: boolean
+  runWorkflowDisabled?: boolean
+  onRunWorkflow?: (schema: OrchestratorWorkflowSchema) => void
   note: string
   onNoteChange: (value: string) => void
   setupConfig: SetupConfig | null
@@ -371,6 +379,9 @@ export default function NewWorkspaceComposerCard({
   projectError,
   creating,
   onCreate,
+  showRunWorkflow = false,
+  runWorkflowDisabled = false,
+  onRunWorkflow,
   note,
   onNoteChange,
   setupConfig,
@@ -399,6 +410,10 @@ export default function NewWorkspaceComposerCard({
   // Why: subscribe (form uses translate() directly) so an open create dialog repaints when the UI language changes.
   useTranslation()
   const { isFileDragOver, dragHandlers } = useComposerFileDragOver()
+  const [workflowTabActive, setWorkflowTabActive] = React.useState(false)
+  const [workflowSchema, setWorkflowSchema] = React.useState<OrchestratorWorkflowSchema | null>(
+    null
+  )
   const openModal = useAppStore((s) => s.openModal)
   const activeModal = useAppStore((s) => s.activeModal)
   const defaultTuiAgent = useAppStore((s) => s.settings?.defaultTuiAgent ?? null)
@@ -413,6 +428,10 @@ export default function NewWorkspaceComposerCard({
     const repo = eligibleRepos.find((candidate) => candidate.id === repoId)
     return repo?.displayName ?? repo?.path ?? 'This project'
   }, [eligibleRepos, repoId])
+  const selectedRepoPath = React.useMemo(
+    () => eligibleRepos.find((candidate) => candidate.id === repoId)?.path,
+    [eligibleRepos, repoId]
+  )
   const selectedProjectName = React.useMemo(() => {
     const option = projectOptions.find((candidate) => candidate.id === selectedProjectId)
     return option?.displayName ?? selectedRepoName
@@ -767,18 +786,7 @@ export default function NewWorkspaceComposerCard({
 
         <div className="min-w-0 space-y-1" data-contextual-tour-target="workspace-creation-name">
           <label className="block min-w-0 truncate text-xs font-medium text-muted-foreground">
-            {selectedRepoIsGit
-              ? translate(
-                  'auto.components.NewWorkspaceComposerCard.ac3748dcda',
-                  "Name or 'Create From'"
-                )
-              : translate(
-                  'auto.components.NewWorkspaceComposerCard.0ee17638fe',
-                  'Workspace name'
-                )}{' '}
-            <span className="text-muted-foreground/70">
-              {translate('auto.components.NewWorkspaceComposerCard.0c5d6a479c', '[Optional]')}
-            </span>
+            {translate('auto.components.NewWorkspaceComposerCard.taskName', 'Task name')}
           </label>
           <SmartWorkspaceNameField
             inputRef={nameInputRef}
@@ -876,319 +884,363 @@ export default function NewWorkspaceComposerCard({
 
         <div className="min-w-0 space-y-1" data-contextual-tour-target="workspace-creation-agent">
           <div className="flex items-center justify-between gap-2">
-            <label className="text-xs font-medium text-muted-foreground">
-              {translate('auto.components.NewWorkspaceComposerCard.01d1e8f601', 'Agent')}
-            </label>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-xs"
-                  onClick={onOpenAgentSettings}
-                  // Why: keep Tab flow Name → Agent; tabIndex=-1 so this settings detour doesn't add a keystroke to every creation.
-                  tabIndex={-1}
-                  className="size-5 shrink-0 rounded-sm text-muted-foreground hover:text-foreground"
-                  aria-label={translate(
-                    'auto.components.NewWorkspaceComposerCard.ab63f25397',
-                    'Open agent settings'
-                  )}
+            {showRunWorkflow ? (
+              <ToggleGroup
+                type="single"
+                value={workflowTabActive ? 'workflow' : 'agent'}
+                onValueChange={(next: string) => {
+                  if (next !== 'agent' && next !== 'workflow') {
+                    return
+                  }
+                  setWorkflowTabActive(next === 'workflow')
+                  if (next === 'agent') {
+                    setWorkflowSchema(null)
+                  }
+                }}
+                className="h-7 items-center gap-0.5 rounded-md bg-input/40 p-0.5"
+              >
+                <ToggleGroupItem
+                  value="agent"
+                  className="h-full min-w-0 rounded-sm px-2 text-xs font-normal text-muted-foreground data-[state=on]:bg-background data-[state=on]:font-medium data-[state=on]:text-foreground data-[state=on]:shadow-xs"
                 >
-                  <Settings2 className="size-3" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="top" sideOffset={6}>
-                {translate(
-                  'auto.components.NewWorkspaceComposerCard.ba64270bdb',
-                  'Configure agents'
-                )}
-              </TooltipContent>
-            </Tooltip>
+                  {translate('auto.components.NewWorkspaceComposerCard.01d1e8f601', 'Agent')}
+                </ToggleGroupItem>
+                <ToggleGroupItem
+                  value="workflow"
+                  data-workspace-workflow-tab="true"
+                  className="h-full min-w-0 rounded-sm px-2 text-xs font-normal text-muted-foreground data-[state=on]:bg-background data-[state=on]:font-medium data-[state=on]:text-foreground data-[state=on]:shadow-xs"
+                >
+                  {translate('auto.components.NewWorkspaceComposerCard.workflowTab', 'Workflow')}
+                </ToggleGroupItem>
+              </ToggleGroup>
+            ) : (
+              <label className="text-xs font-medium text-muted-foreground">
+                {translate('auto.components.NewWorkspaceComposerCard.01d1e8f601', 'Agent')}
+              </label>
+            )}
+            {!workflowTabActive ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={onOpenAgentSettings}
+                    // Why: keep Tab flow Name → Agent; tabIndex=-1 so this settings detour doesn't add a keystroke to every creation.
+                    tabIndex={-1}
+                    className="size-5 shrink-0 rounded-sm text-muted-foreground hover:text-foreground"
+                    aria-label={translate(
+                      'auto.components.NewWorkspaceComposerCard.ab63f25397',
+                      'Open agent settings'
+                    )}
+                  >
+                    <Settings className="size-3" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top" sideOffset={6}>
+                  {translate(
+                    'auto.components.NewWorkspaceComposerCard.ba64270bdb',
+                    'Configure agents'
+                  )}
+                </TooltipContent>
+              </Tooltip>
+            ) : null}
           </div>
-          <AgentCombobox
-            agents={visibleQuickAgents}
-            value={quickAgent}
-            onValueChange={onQuickAgentChange}
-            onOpenManageAgents={onOpenAgentSettings}
-            defaultAgent={defaultTuiAgent}
-            onSetDefault={handleSetDefaultAgent}
-            // Why: match Project/Run-on — full-width form row, no 260px min that can overflow the dialog column.
-            allowNarrowTrigger
-            triggerClassName="h-9 w-full min-w-0 border-input text-sm focus:border-ring focus:ring-[3px] focus:ring-ring/50"
-            onTriggerEnter={createDisabled ? undefined : onCreate}
-          />
+          {workflowTabActive ? (
+            <WorkflowSchemaCombobox
+              value={workflowSchema}
+              onValueChange={setWorkflowSchema}
+              repoPath={selectedRepoPath ?? ''}
+              disabled={runWorkflowDisabled || !selectedRepoPath}
+            />
+          ) : (
+            <AgentCombobox
+              agents={visibleQuickAgents}
+              value={quickAgent}
+              onValueChange={onQuickAgentChange}
+              onOpenManageAgents={onOpenAgentSettings}
+              defaultAgent={defaultTuiAgent}
+              onSetDefault={handleSetDefaultAgent}
+              // Why: match Project/Run-on — full-width form row, no 260px min that can overflow the dialog column.
+              allowNarrowTrigger
+              triggerClassName="h-9 w-full min-w-0 border-input text-sm focus:border-ring focus:ring-[3px] focus:ring-ring/50"
+              onTriggerEnter={createDisabled ? undefined : onCreate}
+            />
+          )}
         </div>
 
-        {/* Why: keep the Advanced disclosure header grouped with the content below while preserving spacing from the Agent field above. */}
-        <div className="!mb-2">
-          {/* Why: -ml-2 pulls the button so its label aligns flush-left with the field labels above
+        {!workflowTabActive ? (
+          <>
+            {/* Why: keep the Advanced disclosure header grouped with the content below while preserving spacing from the Agent field above. */}
+            <div className="!mb-2">
+              {/* Why: -ml-2 pulls the button so its label aligns flush-left with the field labels above
               while the padded hover highlight extends past the label on the left. The scroll
               container's px-2 inset gives that overhang room so it isn't clipped. */}
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={onToggleAdvanced}
-            className="-ml-2 text-xs"
-          >
-            {translate('auto.components.NewWorkspaceComposerCard.f0470c7383', 'Advanced')}
-            <ChevronDown
-              className={cn('size-4 transition-transform', advancedOpen && 'rotate-180')}
-            />
-          </Button>
-        </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={onToggleAdvanced}
+                className="-ml-2 text-xs"
+              >
+                {translate('auto.components.NewWorkspaceComposerCard.f0470c7383', 'Advanced')}
+                <ChevronDown
+                  className={cn('size-4 transition-transform', advancedOpen && 'rotate-180')}
+                />
+              </Button>
+            </div>
 
-        <div
-          className={cn(
-            'grid overflow-hidden transition-[grid-template-rows] duration-200 ease-out',
-            !advancedOpen && '!mt-2',
-            advancedOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
-          )}
-          aria-hidden={!advancedOpen}
-        >
-          <div className="min-h-0">
-            {/* Why: px-1 gives the Note textarea's 3px outset focus ring breathing room so the overflow-hidden drawer doesn't clip it. */}
             <div
               className={cn(
-                'space-y-4 px-1 pt-1 pb-3 transition-[opacity,transform] duration-150 ease-out',
-                advancedOpen
-                  ? 'translate-y-0 opacity-100 delay-200'
-                  : '-translate-y-1 opacity-0 delay-0'
+                'grid overflow-hidden transition-[grid-template-rows] duration-200 ease-out',
+                !advancedOpen && '!mt-2',
+                advancedOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
               )}
+              aria-hidden={!advancedOpen}
             >
-              {smartNameSelection ? (
-                // Why: with a source pill the smart field isn't editable, so surface the derived name here; a typed name already is the name field.
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-muted-foreground">
-                    {translate('auto.components.NewWorkspaceComposerCard.2688050e4b', 'Name')}
-                  </label>
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={(event) => onNameValueChange(event.target.value)}
-                    placeholder={translate(
-                      'auto.components.NewWorkspaceComposerCard.0ee17638fe',
-                      'Workspace name'
-                    )}
-                    className="w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-1.5 text-sm shadow-xs transition-[color,box-shadow] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-                  />
-                </div>
-              ) : null}
-
-              {/* Why: for a tracked work item (PR/issue/MR/Linear) the branch is derived from the item, so a manual override here would be silently ignored. */}
-              {selectedRepoIsGit &&
-              branchesEnabled &&
-              (!smartNameSelection || smartNameSelection.kind === 'branch') ? (
-                <div className="space-y-1">
-                  <label
-                    htmlFor={branchNameInputId}
-                    className="text-xs font-medium text-muted-foreground"
-                  >
-                    {translate(
-                      'auto.components.NewWorkspaceComposerCard.branchName',
-                      'Branch name'
-                    )}
-                  </label>
-                  <input
-                    id={branchNameInputId}
-                    type="text"
-                    value={branchNameOverride ?? ''}
-                    onChange={(event) => onBranchNameOverrideChange(event.target.value)}
-                    placeholder={translate(
-                      'auto.components.NewWorkspaceComposerCard.branchNamePlaceholder',
-                      'feature/my-branch'
-                    )}
-                    className="w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-1.5 text-sm shadow-xs transition-[color,box-shadow] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-                  />
-                </div>
-              ) : null}
-
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">
-                  {translate('auto.components.NewWorkspaceComposerCard.f8728aa4f9', 'Note')}
-                </label>
-                <textarea
-                  value={note}
-                  onChange={(event) => onNoteChange(event.target.value)}
-                  onPaste={handleNotePaste}
-                  onInput={(event) => {
-                    // Why: reset then size to content so short notes stay compact and long ones grow without a scrollbar until max-h clamps.
-                    const ta = event.currentTarget
-                    ta.style.height = 'auto'
-                    ta.style.height = `${ta.scrollHeight}px`
-                  }}
-                  placeholder={translate(
-                    'auto.components.NewWorkspaceComposerCard.090cfedeb4',
-                    'Write a note'
+              <div className="min-h-0">
+                {/* Why: px-1 gives the Note textarea's 3px outset focus ring breathing room so the overflow-hidden drawer doesn't clip it. */}
+                <div
+                  className={cn(
+                    'space-y-4 px-1 pt-1 pb-3 transition-[opacity,transform] duration-150 ease-out',
+                    advancedOpen
+                      ? 'translate-y-0 opacity-100 delay-200'
+                      : '-translate-y-1 opacity-0 delay-0'
                   )}
-                  rows={1}
-                  className="w-full min-w-0 resize-none overflow-hidden rounded-md border border-input bg-transparent px-3 py-1.5 text-sm shadow-xs transition-[color,box-shadow] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 max-h-40"
-                />
-              </div>
-
-              {setupControlsEnabled && setupConfig ? (
-                <div className="space-y-2">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
+                >
+                  {/* Why: optional workspace name override; the smart field also edits this when no source is selected. */}
+                  <div className="space-y-1">
                     <label className="text-xs font-medium text-muted-foreground">
-                      {setupConfigLabel}
+                      {translate('auto.components.NewWorkspaceComposerCard.2688050e4b', 'Name')}
                     </label>
-                    {/* Why: a quiet monospace filename chip (not an uppercase tag) — orca.yaml is a
-                        literal filename, so it reads as code, matching the app's path styling. */}
-                    <span className="rounded border border-border/50 bg-muted/30 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-                      {setupConfig.source === 'yaml'
-                        ? translate(
-                            'auto.components.NewWorkspaceComposerCard.23bb365554',
-                            'orca.yaml'
-                          )
-                        : setupConfig.source === 'both'
-                          ? translate(
-                              'auto.components.NewWorkspaceComposerCard.326a578923',
-                              'orca.yaml + local'
-                            )
-                          : translate(
-                              'auto.components.NewWorkspaceComposerCard.92e34f0311',
-                              'local settings'
-                            )}
-                    </span>
+                    <input
+                      type="text"
+                      value={name}
+                      onChange={(event) => onNameValueChange(event.target.value)}
+                      placeholder={translate(
+                        'auto.components.NewWorkspaceComposerCard.0ee17638fe',
+                        'Workspace name'
+                      )}
+                      className="w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-1.5 text-sm shadow-xs transition-[color,box-shadow] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                    />
                   </div>
 
-                  {/* Why: `orca.yaml` is the committed source of truth for shared setup,
+                  {/* Why: for a tracked work item (PR/issue/MR/Linear) the branch is derived from the item, so a manual override here would be silently ignored. */}
+                  {selectedRepoIsGit &&
+                  branchesEnabled &&
+                  (!smartNameSelection || smartNameSelection.kind === 'branch') ? (
+                    <div className="space-y-1">
+                      <label
+                        htmlFor={branchNameInputId}
+                        className="text-xs font-medium text-muted-foreground"
+                      >
+                        {translate(
+                          'auto.components.NewWorkspaceComposerCard.branchName',
+                          'Branch name'
+                        )}
+                      </label>
+                      <input
+                        id={branchNameInputId}
+                        type="text"
+                        value={branchNameOverride ?? ''}
+                        onChange={(event) => onBranchNameOverrideChange(event.target.value)}
+                        placeholder={translate(
+                          'auto.components.NewWorkspaceComposerCard.branchNamePlaceholder',
+                          'feature/my-branch'
+                        )}
+                        className="w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-1.5 text-sm shadow-xs transition-[color,box-shadow] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                      />
+                    </div>
+                  ) : null}
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">
+                      {translate('auto.components.NewWorkspaceComposerCard.f8728aa4f9', 'Note')}
+                    </label>
+                    <textarea
+                      value={note}
+                      onChange={(event) => onNoteChange(event.target.value)}
+                      onPaste={handleNotePaste}
+                      onInput={(event) => {
+                        // Why: reset then size to content so short notes stay compact and long ones grow without a scrollbar until max-h clamps.
+                        const ta = event.currentTarget
+                        ta.style.height = 'auto'
+                        ta.style.height = `${ta.scrollHeight}px`
+                      }}
+                      placeholder={translate(
+                        'auto.components.NewWorkspaceComposerCard.090cfedeb4',
+                        'Write a note'
+                      )}
+                      rows={1}
+                      className="w-full min-w-0 resize-none overflow-hidden rounded-md border border-input bg-transparent px-3 py-1.5 text-sm shadow-xs transition-[color,box-shadow] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 max-h-40"
+                    />
+                  </div>
+
+                  {setupControlsEnabled && setupConfig ? (
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <label className="text-xs font-medium text-muted-foreground">
+                          {setupConfigLabel}
+                        </label>
+                        {/* Why: a quiet monospace filename chip (not an uppercase tag) — orca.yaml is a
+                        literal filename, so it reads as code, matching the app's path styling. */}
+                        <span className="rounded border border-border/50 bg-muted/30 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                          {setupConfig.source === 'yaml'
+                            ? translate(
+                                'auto.components.NewWorkspaceComposerCard.23bb365554',
+                                'orca.yaml'
+                              )
+                            : setupConfig.source === 'both'
+                              ? translate(
+                                  'auto.components.NewWorkspaceComposerCard.326a578923',
+                                  'orca.yaml + local'
+                                )
+                              : translate(
+                                  'auto.components.NewWorkspaceComposerCard.92e34f0311',
+                                  'local settings'
+                                )}
+                        </span>
+                      </div>
+
+                      {/* Why: `orca.yaml` is the committed source of truth for shared setup,
                       so the preview reconstructs the real YAML shape instead of showing a raw
                       shell blob that hides where the command came from. */}
-                  <SetupCommandPreview setupConfig={setupConfig} />
+                      <SetupCommandPreview setupConfig={setupConfig} />
 
-                  {/* Why: group the run-setup and wait-for-setup toggles in one bordered box so
+                      {/* Why: group the run-setup and wait-for-setup toggles in one bordered box so
                       they read as a single settings cluster, aligned hard-right. */}
-                  {!requiresExplicitSetupChoice || showSetupAgentStartupPolicy ? (
-                    <div className="rounded-md border border-border/60 bg-muted/25">
-                      {requiresExplicitSetupChoice ? null : (
-                        <div className="flex items-center justify-between gap-3 p-3">
-                          <span className="text-xs font-medium text-foreground">
-                            {setupRunLabel}
-                          </span>
-                          <SettingsSwitch
-                            checked={resolvedSetupDecision === 'run'}
-                            onChange={() =>
-                              onSetupDecisionChange(
-                                resolvedSetupDecision === 'run' ? 'skip' : 'run'
-                              )
-                            }
-                            ariaLabel={setupRunLabel}
-                          />
+                      {!requiresExplicitSetupChoice || showSetupAgentStartupPolicy ? (
+                        <div className="rounded-md border border-border/60 bg-muted/25">
+                          {requiresExplicitSetupChoice ? null : (
+                            <div className="flex items-center justify-between gap-3 p-3">
+                              <span className="text-xs font-medium text-foreground">
+                                {setupRunLabel}
+                              </span>
+                              <SettingsSwitch
+                                checked={resolvedSetupDecision === 'run'}
+                                onChange={() =>
+                                  onSetupDecisionChange(
+                                    resolvedSetupDecision === 'run' ? 'skip' : 'run'
+                                  )
+                                }
+                                ariaLabel={setupRunLabel}
+                              />
+                            </div>
+                          )}
+                          {showSetupAgentStartupPolicy ? (
+                            // Why: nothing to wait for when setup won't run — disable the toggle and
+                            // dim the label so it reads as inactive (the switch dims itself).
+                            <div className="flex items-start justify-between gap-3 p-3">
+                              <span
+                                className={cn(
+                                  'min-w-0 space-y-1',
+                                  resolvedSetupDecision === 'run' ? '' : 'opacity-50'
+                                )}
+                              >
+                                <span className="block text-xs font-medium text-foreground">
+                                  {translate(
+                                    'auto.components.NewWorkspaceComposerCard.waitForSetupBeforeAgent',
+                                    'Wait for setup to complete before starting agent'
+                                  )}
+                                </span>
+                                <span className="block text-[11px] text-muted-foreground">
+                                  {translate(
+                                    'auto.components.NewWorkspaceComposerCard.waitForSetupBeforeAgentHelp',
+                                    'Turn this on when setup installs dependencies, MCP servers, or config files the agent needs during startup.'
+                                  )}
+                                </span>
+                              </span>
+                              <SettingsSwitch
+                                checked={setupAgentStartupPolicy === 'wait-for-setup'}
+                                disabled={resolvedSetupDecision !== 'run'}
+                                onChange={() =>
+                                  onSetupAgentStartupPolicyChange(
+                                    setupAgentStartupPolicy === 'wait-for-setup'
+                                      ? 'start-immediately'
+                                      : 'wait-for-setup'
+                                  )
+                                }
+                                ariaLabel={translate(
+                                  'auto.components.NewWorkspaceComposerCard.waitForSetupBeforeAgent',
+                                  'Wait for setup to complete before starting agent'
+                                )}
+                              />
+                            </div>
+                          ) : null}
                         </div>
-                      )}
-                      {showSetupAgentStartupPolicy ? (
-                        // Why: nothing to wait for when setup won't run — disable the toggle and
-                        // dim the label so it reads as inactive (the switch dims itself).
-                        <div className="flex items-start justify-between gap-3 p-3">
-                          <span
-                            className={cn(
-                              'min-w-0 space-y-1',
-                              resolvedSetupDecision === 'run' ? '' : 'opacity-50'
-                            )}
-                          >
-                            <span className="block text-xs font-medium text-foreground">
-                              {translate(
-                                'auto.components.NewWorkspaceComposerCard.waitForSetupBeforeAgent',
-                                'Wait for setup to complete before starting agent'
-                              )}
-                            </span>
-                            <span className="block text-[11px] text-muted-foreground">
-                              {translate(
-                                'auto.components.NewWorkspaceComposerCard.waitForSetupBeforeAgentHelp',
-                                'Turn this on when setup installs dependencies, MCP servers, or config files the agent needs during startup.'
-                              )}
-                            </span>
-                          </span>
-                          <SettingsSwitch
-                            checked={setupAgentStartupPolicy === 'wait-for-setup'}
-                            disabled={resolvedSetupDecision !== 'run'}
-                            onChange={() =>
-                              onSetupAgentStartupPolicyChange(
-                                setupAgentStartupPolicy === 'wait-for-setup'
-                                  ? 'start-immediately'
-                                  : 'wait-for-setup'
-                              )
-                            }
-                            ariaLabel={translate(
-                              'auto.components.NewWorkspaceComposerCard.waitForSetupBeforeAgent',
-                              'Wait for setup to complete before starting agent'
-                            )}
-                          />
+                      ) : null}
+
+                      {requiresExplicitSetupChoice ? (
+                        <div className="space-y-2">
+                          <div className="text-[11px] font-medium text-muted-foreground">
+                            {setupAskLabel}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Button
+                              type="button"
+                              onClick={() => onSetupDecisionChange('run')}
+                              variant={setupDecision === 'run' ? 'default' : 'outline'}
+                              size="sm"
+                            >
+                              {setupRunButtonLabel}
+                            </Button>
+                            <Button
+                              type="button"
+                              onClick={() => onSetupDecisionChange('skip')}
+                              variant={setupDecision === 'skip' ? 'secondary' : 'outline'}
+                              size="sm"
+                            >
+                              {setupSkipButtonLabel}
+                            </Button>
+                          </div>
+                          {!setupDecision ? (
+                            <div className="text-xs text-muted-foreground">
+                              {shouldWaitForSetupCheck
+                                ? translate(
+                                    'auto.components.NewWorkspaceComposerCard.803b7fe72f',
+                                    'Checking setup configuration...'
+                                  )
+                                : translate(
+                                    'auto.components.NewWorkspaceComposerCard.9a70e4859e',
+                                    'Choose whether to run setup before creating this workspace.'
+                                  )}
+                            </div>
+                          ) : null}
                         </div>
                       ) : null}
                     </div>
                   ) : null}
 
-                  {requiresExplicitSetupChoice ? (
-                    <div className="space-y-2">
-                      <div className="text-[11px] font-medium text-muted-foreground">
-                        {setupAskLabel}
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Button
-                          type="button"
-                          onClick={() => onSetupDecisionChange('run')}
-                          variant={setupDecision === 'run' ? 'default' : 'outline'}
-                          size="sm"
-                        >
-                          {setupRunButtonLabel}
-                        </Button>
-                        <Button
-                          type="button"
-                          onClick={() => onSetupDecisionChange('skip')}
-                          variant={setupDecision === 'skip' ? 'secondary' : 'outline'}
-                          size="sm"
-                        >
-                          {setupSkipButtonLabel}
-                        </Button>
-                      </div>
-                      {!setupDecision ? (
-                        <div className="text-xs text-muted-foreground">
-                          {shouldWaitForSetupCheck
-                            ? translate(
-                                'auto.components.NewWorkspaceComposerCard.803b7fe72f',
-                                'Checking setup configuration...'
-                              )
-                            : translate(
-                                'auto.components.NewWorkspaceComposerCard.9a70e4859e',
-                                'Choose whether to run setup before creating this workspace.'
-                              )}
-                        </div>
+                  {sparseControlsEnabled ? (
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-muted-foreground">
+                        {translate(
+                          'auto.components.NewWorkspaceComposerCard.d861de981b',
+                          'Sparse checkout'
+                        )}
+                      </label>
+                      <SparseCheckoutPresetSelect
+                        repoId={repoId}
+                        presets={sparsePresets}
+                        selectedPresetId={sparseSelectedPresetId}
+                        onSelectPreset={onSparseSelectPreset}
+                        disabled={!canUseSparseCheckout}
+                      />
+                      {!canUseSparseCheckout ? (
+                        <p className="text-[11px] text-muted-foreground">
+                          {translate(
+                            'auto.components.NewWorkspaceComposerCard.cbb47ee0dc',
+                            'Only available for local Git projects.'
+                          )}
+                        </p>
                       ) : null}
                     </div>
                   ) : null}
                 </div>
-              ) : null}
-
-              {sparseControlsEnabled ? (
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">
-                    {translate(
-                      'auto.components.NewWorkspaceComposerCard.d861de981b',
-                      'Sparse checkout'
-                    )}
-                  </label>
-                  <SparseCheckoutPresetSelect
-                    repoId={repoId}
-                    presets={sparsePresets}
-                    selectedPresetId={sparseSelectedPresetId}
-                    onSelectPreset={onSparseSelectPreset}
-                    disabled={!canUseSparseCheckout}
-                  />
-                  {!canUseSparseCheckout ? (
-                    <p className="text-[11px] text-muted-foreground">
-                      {translate(
-                        'auto.components.NewWorkspaceComposerCard.cbb47ee0dc',
-                        'Only available for local Git projects.'
-                      )}
-                    </p>
-                  ) : null}
-                </div>
-              ) : null}
+              </div>
             </div>
-          </div>
-        </div>
+          </>
+        ) : null}
       </div>
 
       {createError ? (
@@ -1208,53 +1260,79 @@ export default function NewWorkspaceComposerCard({
         </div>
       ) : null}
 
-      <div
-        className={cn(
-          'flex items-center gap-3',
-          showCreateMultiple ? 'justify-between' : 'justify-end'
-        )}
-      >
-        {showCreateMultiple ? (
-          <button
-            type="button"
-            role="switch"
-            aria-checked={createMultiple}
-            onClick={() => onCreateMultipleChange?.(!createMultiple)}
-            className="group flex w-fit cursor-pointer items-center gap-2 rounded-md text-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-          >
-            <span
-              aria-hidden
-              className={cn(
-                'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-transparent transition-colors',
-                createMultiple ? 'bg-foreground' : 'bg-muted-foreground/30'
-              )}
+      {!workflowTabActive ? (
+        <div
+          className={cn(
+            'flex items-center gap-3',
+            showCreateMultiple ? 'justify-between' : 'justify-end'
+          )}
+        >
+          {showCreateMultiple ? (
+            <button
+              type="button"
+              role="switch"
+              aria-checked={createMultiple}
+              onClick={() => onCreateMultipleChange?.(!createMultiple)}
+              className="group flex w-fit cursor-pointer items-center gap-2 rounded-md text-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
             >
               <span
+                aria-hidden
                 className={cn(
-                  'pointer-events-none block size-3.5 rounded-full bg-background shadow-sm transition-transform',
-                  createMultiple ? 'translate-x-4' : 'translate-x-0.5'
+                  'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-transparent transition-colors',
+                  createMultiple ? 'bg-foreground' : 'bg-muted-foreground/30'
                 )}
-              />
+              >
+                <span
+                  className={cn(
+                    'pointer-events-none block size-3.5 rounded-full bg-background shadow-sm transition-transform',
+                    createMultiple ? 'translate-x-4' : 'translate-x-0.5'
+                  )}
+                />
+              </span>
+              <span className="text-muted-foreground transition-colors group-hover:text-foreground">
+                {translate(
+                  'auto.components.NewWorkspaceComposerCard.createMultiple',
+                  'Create more'
+                )}
+              </span>
+            </button>
+          ) : null}
+          <Button
+            onClick={() => void onCreate()}
+            disabled={createDisabled}
+            size="sm"
+            className="text-xs"
+          >
+            {creating ? <LoaderCircle className="size-4 animate-spin" /> : null}
+            {primaryActionLabel}
+            <span className="ml-1 inline-flex items-center gap-0.5 rounded border border-white/20 px-1.5 py-0.5 text-[10px] font-medium leading-none text-current/80">
+              <span>{submitShortcutModifierLabel}</span>
+              <CornerDownLeft className="size-3" />
             </span>
-            <span className="text-muted-foreground transition-colors group-hover:text-foreground">
-              {translate('auto.components.NewWorkspaceComposerCard.createMultiple', 'Create more')}
+          </Button>
+        </div>
+      ) : (
+        <div className="flex items-center justify-end gap-3">
+          <Button
+            type="button"
+            size="sm"
+            disabled={!workflowSchema || runWorkflowDisabled || creating}
+            onClick={() => workflowSchema && onRunWorkflow?.(workflowSchema)}
+            className="text-xs"
+          >
+            {creating ? (
+              <LoaderCircle className="size-4 animate-spin" />
+            ) : (
+              <Play className="size-3.5" />
+            )}
+            {translate('auto.components.NewWorkspaceComposerCard.startWorkflow', 'Start')}
+            <span className="ml-1 inline-flex items-center gap-0.5 rounded border border-white/20 px-1.5 py-0.5 text-[10px] font-medium leading-none text-current/80">
+              <span>{submitShortcutModifierLabel}</span>
+              <CornerDownLeft className="size-3" />
             </span>
-          </button>
-        ) : null}
-        <Button
-          onClick={() => void onCreate()}
-          disabled={createDisabled}
-          size="sm"
-          className="text-xs"
-        >
-          {creating ? <LoaderCircle className="size-4 animate-spin" /> : null}
-          {primaryActionLabel}
-          <span className="ml-1 inline-flex items-center gap-0.5 rounded border border-white/20 px-1.5 py-0.5 text-[10px] font-medium leading-none text-current/80">
-            <span>{submitShortcutModifierLabel}</span>
-            <CornerDownLeft className="size-3" />
-          </span>
-        </Button>
-      </div>
+          </Button>
+        </div>
+      )}
       {/* Why: layer the host-add form over the composer instead of navigating to Settings so
           the in-progress workspace form is preserved; on success the new host flows back into
           the run-target picker via the store. */}

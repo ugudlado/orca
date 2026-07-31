@@ -17,7 +17,8 @@ const storeMocks = vi.hoisted(() => ({
 
 const apiMocks = vi.hoisted(() => ({
   runtimeGetStatus: vi.fn(),
-  sshConnect: vi.fn()
+  sshConnect: vi.fn(),
+  listWorkflowSchemas: vi.fn()
 }))
 
 vi.mock('@/store', () => ({
@@ -85,6 +86,22 @@ vi.mock('@/components/new-workspace/SmartWorkspaceNameField', () => ({
         .join(',')}
       data-repo-backed-sources-disabled={repoBackedSourcesDisabled ? 'true' : 'false'}
     />
+  )
+}))
+
+vi.mock('@/components/new-workspace/WorkflowSchemaCombobox', () => ({
+  WorkflowSchemaCombobox: ({
+    value,
+    onValueChange,
+    disabled
+  }: {
+    value: 'implement' | null
+    onValueChange: (schema: 'implement') => void
+    disabled?: boolean
+  }) => (
+    <button type="button" disabled={disabled} onClick={() => onValueChange('implement')}>
+      {value ? `Workflow: ${value}` : 'Select workflow'}
+    </button>
   )
 }))
 
@@ -305,8 +322,12 @@ describe('NewWorkspaceComposerCard folder task source mode', () => {
       },
       ssh: {
         connect: apiMocks.sshConnect
+      },
+      orchestrator: {
+        listWorkflowSchemas: apiMocks.listWorkflowSchemas
       }
     }
+    apiMocks.listWorkflowSchemas.mockResolvedValue(['implement'])
     apiMocks.runtimeGetStatus.mockResolvedValue({
       id: 'status',
       ok: true,
@@ -342,7 +363,7 @@ describe('NewWorkspaceComposerCard folder task source mode', () => {
       '[data-contextual-tour-target="workspace-creation-name"]'
     )
     expect(projectSection?.textContent).not.toContain('Task Source')
-    expect(nameSection?.textContent).toContain("Name or 'Create From'")
+    expect(nameSection).toBeTruthy()
     expect(
       current.container
         .querySelector('[aria-label="workspace name"]')
@@ -849,5 +870,54 @@ describe('NewWorkspaceComposerCard folder task source mode', () => {
 
     expect(hostChanges).toEqual(['setup-builder'])
     expect(recipeChanges).toEqual([null])
+  })
+
+  it('runs a selected workflow from the composer footer workflow tab', () => {
+    const onRunWorkflow = vi.fn()
+    current = renderCard({
+      showRunWorkflow: true,
+      onRunWorkflow,
+      eligibleRepos: [{ id: 'repo-a', displayName: 'Repo A', path: '/repo-a' } as never]
+    })
+
+    const workflowTab = [...current.container.querySelectorAll('button')].find(
+      (button) => button.textContent === 'Workflow'
+    )
+    expect(workflowTab).toBeTruthy()
+    act(() => workflowTab?.click())
+
+    const selectWorkflowButton = [...current.container.querySelectorAll('button')].find((button) =>
+      button.textContent?.includes('Select workflow')
+    )
+    expect(selectWorkflowButton).toBeTruthy()
+    act(() => selectWorkflowButton?.click())
+
+    const startButton = [...current.container.querySelectorAll('button')].find((button) =>
+      button.textContent?.includes('Start')
+    )
+    expect(startButton).toBeTruthy()
+    act(() => startButton?.click())
+
+    expect(onRunWorkflow).toHaveBeenCalledWith('implement')
+  })
+
+  it('keeps the workflow picker visible while waiting for a repo selection', () => {
+    current = renderCard({
+      showRunWorkflow: true,
+      runWorkflowDisabled: true,
+      onRunWorkflow: vi.fn()
+    })
+
+    const workflowTab = [...current.container.querySelectorAll('button')].find(
+      (button) => button.textContent === 'Workflow'
+    )
+    expect(workflowTab).toBeTruthy()
+    act(() => workflowTab?.click())
+
+    const selectWorkflowButton = [...current.container.querySelectorAll('button')].find((button) =>
+      button.textContent?.includes('Select workflow')
+    )
+    expect(selectWorkflowButton).toBeTruthy()
+    expect(selectWorkflowButton?.disabled).toBe(true)
   })
 })

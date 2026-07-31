@@ -1,4 +1,5 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { toast } from 'sonner'
 import { useAppStore } from '@/store'
 import { lazyWithRetry } from '@/lib/lazy-with-retry'
 import {
@@ -12,6 +13,8 @@ import NewWorkspaceComposerCard from '@/components/NewWorkspaceComposerCard'
 import AgentSettingsDialog from '@/components/agent/AgentSettingsDialog'
 import type { AddRepoDialogHostedController } from '@/components/sidebar/use-add-repo-hosted-controller'
 import { useComposerState } from '@/hooks/useComposerState'
+import { runOrchestratorWorkflow } from '@/lib/run-orchestrator-workflow'
+import type { OrchestratorWorkflowSchema } from '@/lib/build-orchestrator-run-command'
 import {
   pickQuickWorkspaceAgent,
   resolveQuickWorkspaceAgentSelection
@@ -189,6 +192,37 @@ function QuickTabBody({
   const handleCreate = useCallback(async (): Promise<void> => {
     await submitQuick(quickAgent)
   }, [quickAgent, submitQuick])
+  // Why: when Start opened the composer for a backlog task, the same popup hosts the
+  // "Run workflow" action so it's reliably reachable (the dotted-menu copy is gone).
+  const linkedBacklogTaskId = modalData.linkedWorkItem?.backlogTaskId ?? null
+  const handleRunWorkflow = useCallback(
+    async (schema: OrchestratorWorkflowSchema): Promise<void> => {
+      if (!linkedBacklogTaskId || !cardProps.repoId) {
+        return
+      }
+      const result = await runOrchestratorWorkflow({
+        task: { id: linkedBacklogTaskId },
+        repoId: cardProps.repoId,
+        schema
+      })
+      if (!result.ok) {
+        toast.error(
+          result.reason === 'invalid-ticket-id'
+            ? translate(
+                'auto.components.TaskPage.orchestratorRunInvalidTicketId',
+                'This task id contains characters that cannot be passed to the orchestrator CLI.'
+              )
+            : translate(
+                'auto.components.TaskPage.orchestratorRunNoWorktree',
+                'Open a workspace for this repo before running an orchestrator workflow.'
+              )
+        )
+        return
+      }
+      onClose()
+    },
+    [cardProps.repoId, linkedBacklogTaskId, onClose]
+  )
   // Why: Add Project layers over the composer as a nested dialog instead of
   // replacing it in the activeModal slot — closing the composer mid-flow (and
   // losing the typed name/prompt) was the old, abrupt behavior. Once opened it
@@ -323,6 +357,9 @@ function QuickTabBody({
         primaryActionLabel={primaryActionLabel}
         onOpenAgentSettings={() => setAgentSettingsOpen(true)}
         onCreate={() => void handleCreate()}
+        showRunWorkflow={Boolean(linkedBacklogTaskId)}
+        runWorkflowDisabled={!cardProps.repoId}
+        onRunWorkflow={(schema) => void handleRunWorkflow(schema)}
         onAddProjectOverride={handleOpenAddProject}
       />
       <AgentSettingsDialog open={agentSettingsOpen} onOpenChange={setAgentSettingsOpen} />

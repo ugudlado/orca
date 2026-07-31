@@ -28,7 +28,6 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useAppStore } from '@/store'
 import {
@@ -345,7 +344,6 @@ export default function SmartWorkspaceNameField({
   const [emojiCursor, setEmojiCursor] = useState<number | null>(null)
   const localInputRef = useRef<HTMLInputElement | null>(null)
   const focusedSelectedSourceKeyRef = useRef<string | null>(null)
-  const tabsListRef = useRef<HTMLDivElement | null>(null)
   const repoSlugCacheRef = useRef<Map<string, RepoSlug>>(new Map())
   const handledCrossRepoUrlRef = useRef<string | null>(null)
   const localInputFocusFrameRef = useRef<number | null>(null)
@@ -383,22 +381,8 @@ export default function SmartWorkspaceNameField({
     if (textOnly) {
       return item.id === 'text'
     }
-    if (item.id === 'github') {
-      return !repoBackedSourcesDisabled
-    }
-    if (item.id === 'gitlab') {
-      return gitlabSourceAvailable
-    }
-    if (item.id === 'linear') {
-      return linearAvailable
-    }
-    if (item.id === 'backlog') {
-      return backlogAvailable
-    }
-    if (item.id === 'branches') {
-      return branchesEnabled && !repoBackedSourcesDisabled
-    }
-    return true
+    // Why: only Smart + Workflow remain as tabs; name/branch moved to Advanced properties.
+    return item.id === 'smart'
   })
   const mrStateFilters = getMrStateFilters()
 
@@ -1457,64 +1441,6 @@ export default function SmartWorkspaceNameField({
 
   return (
     <div className="min-w-0 space-y-1.5">
-      {textOnly ? null : (
-        <div className="flex min-w-0 items-center gap-2 border-b border-border/40">
-          <Tabs
-            value={mode}
-            onValueChange={(next) => {
-              const nextMode = next as SmartNameMode
-              onActiveSourceModeChange?.(nextMode)
-              setMode(nextMode)
-              if (!disabled && nextMode !== 'text' && selectedSource === null) {
-                markSourcePopoverUserEngaged()
-                setOpen(true)
-              } else {
-                setOpen(false)
-              }
-              cancelLocalInputFocusFrame()
-              localInputFocusFrameRef.current = requestAnimationFrame(() => {
-                localInputFocusFrameRef.current = null
-                localInputRef.current?.focus({ preventScroll: true })
-              })
-            }}
-            className="min-w-0 flex-1 gap-0"
-          >
-            <TabsList
-              ref={tabsListRef}
-              variant="line"
-              className="h-7 w-full justify-start gap-4 px-0"
-              onFocusCapture={(event) => {
-                // Why: Radix Tabs roving focus re-applies tabindex=0 to the active trigger (races React commits), so forward Tab to the input.
-                const previous = event.relatedTarget as HTMLElement | null
-                const list = tabsListRef.current
-                const input = localInputRef.current
-                if (!list || !input) {
-                  return
-                }
-                if (!previous || previous === input || list.contains(previous)) {
-                  return
-                }
-                event.stopPropagation()
-                input.focus({ preventScroll: true })
-              }}
-            >
-              {availableModes.map(({ id, label, Icon }) => (
-                <TabsTrigger
-                  key={id}
-                  value={id}
-                  tabIndex={-1}
-                  data-smart-name-mode={id}
-                  className="flex-none gap-1.5 px-0 text-xs"
-                >
-                  <Icon className="size-3.5" />
-                  <span>{label}</span>
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
-        </div>
-      )}
-
       <Popover
         open={!disabled && open && mode !== 'text' && selectedSource === null}
         onOpenChange={handleSourcePopoverOpenChange}
@@ -1650,16 +1576,6 @@ export default function SmartWorkspaceNameField({
                       tryOpenSourcePopover()
                     }}
                     onKeyDown={(event) => {
-                      if (event.key === 'Tab' && event.shiftKey) {
-                        const activeTrigger = tabsListRef.current?.querySelector<HTMLElement>(
-                          `[data-smart-name-mode="${mode}"]`
-                        )
-                        if (activeTrigger) {
-                          event.preventDefault()
-                          activeTrigger.focus()
-                          return
-                        }
-                      }
                       if (emojiMenuOpen && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
                         event.preventDefault()
                         event.stopPropagation()
@@ -1749,19 +1665,13 @@ export default function SmartWorkspaceNameField({
             onPointerDownOutside={(event) => {
               // Why: input is a PopoverAnchor not Trigger, so Radix counts clicks on it as outside; keep input/mode-tab clicks from closing results.
               const target = event.target as Node
-              if (
-                localInputRef.current?.contains(target) ||
-                tabsListRef.current?.contains(target)
-              ) {
+              if (localInputRef.current?.contains(target)) {
                 event.preventDefault()
               }
             }}
             onFocusOutside={(event) => {
               const target = event.target as Node
-              if (
-                localInputRef.current?.contains(target) ||
-                tabsListRef.current?.contains(target)
-              ) {
+              if (localInputRef.current?.contains(target)) {
                 event.preventDefault()
               }
             }}
