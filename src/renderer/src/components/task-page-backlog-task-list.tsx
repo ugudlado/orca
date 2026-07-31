@@ -9,6 +9,7 @@ import {
 } from '@/components/task-page-backlog-task-row'
 import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'
+import type { OrchestratorWorkflowSchema } from '@/lib/build-orchestrator-run-command'
 
 type TaskPageBacklogTaskListProps = {
   tasks: readonly BacklogTask[]
@@ -18,6 +19,7 @@ type TaskPageBacklogTaskListProps = {
   projectName: string | undefined
   onOpen: (task: BacklogTask) => void
   onStart: (task: BacklogTask) => void
+  onRunWorkflow: (task: BacklogTask, schema: OrchestratorWorkflowSchema) => void
 }
 
 export function TaskPageBacklogTaskList({
@@ -27,7 +29,8 @@ export function TaskPageBacklogTaskList({
   tasksError,
   projectName,
   onOpen,
-  onStart
+  onStart,
+  onRunWorkflow
 }: TaskPageBacklogTaskListProps): React.JSX.Element {
   return (
     <div
@@ -84,6 +87,7 @@ export function TaskPageBacklogTaskList({
               projectName={projectName}
               onOpen={onOpen}
               onStart={onStart}
+              onRunWorkflow={onRunWorkflow}
             />
           ))}
         </>

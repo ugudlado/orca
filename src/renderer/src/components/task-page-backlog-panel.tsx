@@ -20,12 +20,14 @@ import {
   isBacklogCompletedStatus
 } from '@/lib/backlog-task-filters'
 import { translate } from '@/i18n/i18n'
+import type { OrchestratorWorkflowSchema } from '@/lib/build-orchestrator-run-command'
 type TaskPageBacklogPanelProps = {
   connected: boolean
   statusReady: boolean
   visibleProjectIds: readonly string[]
   onConnect: () => void
   onUse: (task: BacklogTask) => void
+  onRunWorkflow: (task: BacklogTask, schema: OrchestratorWorkflowSchema) => void
   listProjects: () => Promise<BacklogProject[]>
   listTasks: (
     projectId: string,
@@ -50,6 +52,7 @@ export function TaskPageBacklogPanel({
   visibleProjectIds,
   onConnect,
   onUse,
+  onRunWorkflow,
   listProjects,
   listTasks,
   updateTask,
@@ -346,6 +349,7 @@ export function TaskPageBacklogPanel({
             projectName={selectedProject?.name || selectedProject?.path}
             onOpen={(opened) => setSelectedTaskId(opened.id)}
             onStart={onUse}
+            onRunWorkflow={onRunWorkflow}
           />
         )}
       </div>

@@ -1,17 +1,25 @@
 import React from 'react'
-import { EllipsisVertical, ExternalLink, MessageSquare } from 'lucide-react'
+import { EllipsisVertical, ExternalLink, MessageSquare, Play } from 'lucide-react'
 import type { BacklogTask } from '../../../shared/types'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { backlogStatusChipClassName } from '@/lib/backlog-status-chip'
 import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'
+import { useAppStore } from '@/store'
+import {
+  ORCHESTRATOR_WORKFLOW_SCHEMAS,
+  type OrchestratorWorkflowSchema
+} from '@/lib/build-orchestrator-run-command'
 
 /** Match GitHub issue list column rhythm (ID · title · assignee · status · updated · actions). */
 export const BACKLOG_TASK_GRID_CLASS =
@@ -85,14 +93,18 @@ type TaskPageBacklogTaskRowProps = {
   projectName?: string | null
   onOpen: (task: BacklogTask) => void
   onStart: (task: BacklogTask) => void
+  onRunWorkflow: (task: BacklogTask, schema: OrchestratorWorkflowSchema) => void
 }
 
 export function TaskPageBacklogTaskRow({
   task,
   projectName,
   onOpen,
-  onStart
+  onStart,
+  onRunWorkflow
 }: TaskPageBacklogTaskRowProps): React.JSX.Element {
+  const orchestratorEvent = useAppStore((state) => state.orchestratorEventByTaskId[task.id])
+  const dismissOrchestratorEvent = useAppStore((state) => state.dismissOrchestratorEventForTask)
   const idLabel = formatBacklogTaskIdLabel(task.id)
   const projectLabel = projectName?.trim() || null
   const milestoneLabel =
@@ -136,6 +148,30 @@ export function TaskPageBacklogTaskRow({
       <div className={BACKLOG_TASK_STICKY_TITLE_CELL_CLASS}>
         <div className="flex min-w-0 items-center gap-2">
           <h3 className="truncate text-sm font-semibold text-foreground">{task.title}</h3>
+          {orchestratorEvent ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    dismissOrchestratorEvent(task.id)
+                  }}
+                  className="inline-flex shrink-0 items-center rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0 text-[10px] font-medium text-amber-700 dark:text-amber-200"
+                  aria-label={translate(
+                    'auto.components.TaskPage.orchestratorEventBadgeLabel',
+                    'Orchestrator: {{event}}',
+                    { event: orchestratorEvent.event }
+                  )}
+                >
+                  {orchestratorEvent.event}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={6}>
+                {orchestratorEvent.reason ?? orchestratorEvent.event}
+              </TooltipContent>
+            </Tooltip>
+          ) : null}
         </div>
         {hasContext ? (
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
@@ -232,6 +268,19 @@ export function TaskPageBacklogTaskRow({
               <ExternalLink className="size-4" />
               {translate('auto.components.TaskPage.c1d1600362', 'Open in browser')}
             </DropdownMenuItem>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <Play className="size-4" />
+                {translate('auto.components.TaskPage.runOrchestratorWorkflow', 'Run workflow…')}
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                {ORCHESTRATOR_WORKFLOW_SCHEMAS.map((schema) => (
+                  <DropdownMenuItem key={schema} onSelect={() => onRunWorkflow(task, schema)}>
+                    {schema}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

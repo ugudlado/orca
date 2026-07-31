@@ -162,6 +162,8 @@ import JiraIssueWorkspace from '@/components/JiraIssueWorkspace'
 import { TaskPageJiraIssueList } from '@/components/task-page-jira-issue-list'
 import { TaskPageBacklogPanel } from '@/components/task-page-backlog-panel'
 import { launchWorkItemDirect } from '@/lib/launch-work-item-direct'
+import { runOrchestratorWorkflow } from '@/lib/run-orchestrator-workflow'
+import type { OrchestratorWorkflowSchema } from '@/lib/build-orchestrator-run-command'
 import { resolveBacklogHostHostname } from '@/lib/backlog-launch-env'
 import { buildBacklogStartWorkTaskUpdate } from '../../../shared/backlog-start-work-update'
 import { buildBacklogWorkspaceSource } from '../../../shared/new-workspace/workspace-source'
@@ -8017,6 +8019,32 @@ export default function TaskPage(): React.JSX.Element {
     [openComposerForBacklogTask, primaryRepo, updateBacklogTask]
   )
 
+  const handleRunOrchestratorWorkflow = useCallback(
+    (task: BacklogTask, schema: OrchestratorWorkflowSchema): void => {
+      const repo = primaryRepo
+      if (!repo) {
+        toast.error(
+          translate(
+            'auto.components.TaskPage.orchestratorRunNoRepo',
+            'Add a repo to this project before running an orchestrator workflow.'
+          )
+        )
+        return
+      }
+      void runOrchestratorWorkflow({ task, repoId: repo.id, schema }).then((result) => {
+        if (!result.ok) {
+          toast.error(
+            translate(
+              'auto.components.TaskPage.orchestratorRunNoWorktree',
+              'Open a workspace for this repo before running an orchestrator workflow.'
+            )
+          )
+        }
+      })
+    },
+    [primaryRepo]
+  )
+
   const handleUseJiraItem = useCallback(
     (issue: JiraIssue): void => {
       useAppStore.getState().recordFeatureInteraction('jira-tasks')
@@ -9939,6 +9967,7 @@ export default function TaskPage(): React.JSX.Element {
               visibleProjectIds={settings?.backlogVisibleProjectIds ?? []}
               onConnect={() => void checkBacklogConnection()}
               onUse={handleUseBacklogTask}
+              onRunWorkflow={handleRunOrchestratorWorkflow}
               listProjects={listBacklogProjects}
               listTasks={listBacklogTasks}
               updateTask={updateBacklogTask}
