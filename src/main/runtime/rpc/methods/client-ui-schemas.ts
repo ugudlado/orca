@@ -5,27 +5,16 @@ import {
 } from '../../../../shared/feature-interactions'
 import { isFeatureTipId } from '../../../../shared/feature-tips'
 import {
-  normalizeTuiAgentArgsRecord,
-  normalizeTuiAgentEnvRecord
-} from '../../../../shared/tui-agent-launch-defaults'
-import { isTuiAgent } from '../../../../shared/tui-agent-config'
-import { isTaskProvider } from '../../../../shared/task-providers'
-import { normalizeDisabledTuiAgents } from '../../../../shared/tui-agent-selection'
-import { normalizePRBotAuthorOverrides } from '../../../../shared/pr-bot-author-overrides'
-import {
   normalizeWorktreeCardProperties,
   WORKTREE_CARD_PROPERTIES
 } from '../../../../shared/worktree-card-properties'
 import { isPluginPanelTabKey } from '../../../../shared/plugins/plugin-manifest'
-import type { TaskProvider } from '../../../../shared/types'
 import { TaskResumeState } from './task-resume-state-schema'
 import { omitUndefinedValues, tolerateUnknownValues } from './ui-update-value-tolerance'
+import { SettingsUpdate } from './client-settings-update-schema'
 
 const NullableString = z.string().nullable()
 const StringArray = z.array(z.string())
-const TaskProviderParam = z.custom<TaskProvider>(isTaskProvider, {
-  message: 'Unknown task provider'
-})
 const FeatureTipIds = z.array(z.custom(isFeatureTipId, { message: 'Unknown feature tip id' }))
 const UnknownRecord = z.record(z.string(), z.unknown())
 const UnknownRecordArray = z.array(UnknownRecord)
@@ -113,73 +102,8 @@ export const FeatureInteractionIdParam = z.custom<FeatureInteractionId>(isFeatur
 export const PRBotAuthorOverrideUpdate = z
   .object({ author: z.string(), isBot: z.boolean() })
   .strict()
-const GitHubProjectRef = z
-  .object({
-    owner: z.string(),
-    ownerType: z.enum(['organization', 'user']),
-    number: z.number().int(),
-    host: z.string().optional()
-  })
-  .strict()
-const GitHubProjectSettings = z
-  .object({
-    pinned: z.array(GitHubProjectRef),
-    recent: z.array(
-      GitHubProjectRef.extend({
-        lastOpenedAt: z.string()
-      }).strict()
-    ),
-    lastViewByProject: z.record(z.string(), z.object({ viewId: z.string() }).strict()),
-    activeProject: GitHubProjectRef.nullable()
-  })
-  .strict()
 
-export const SettingsUpdate = z
-  .object({
-    defaultTuiAgent: z
-      .unknown()
-      .transform((value) =>
-        value === null || value === 'blank' || isTuiAgent(value) ? value : undefined
-      )
-      .optional(),
-    disabledTuiAgents: z
-      .unknown()
-      .transform((value) => normalizeDisabledTuiAgents(value))
-      .optional(),
-    agentDefaultArgs: z
-      .unknown()
-      .transform((value) => normalizeTuiAgentArgsRecord(value))
-      .optional(),
-    agentDefaultEnv: z
-      .unknown()
-      .transform((value) => normalizeTuiAgentEnvRecord(value))
-      .optional(),
-    defaultTaskSource: TaskProviderParam.optional(),
-    visibleTaskProviders: z.array(TaskProviderParam).optional(),
-    defaultTaskViewPreset: z
-      .enum(['issues', 'my-issues', 'prs', 'my-prs', 'review', 'all'])
-      .optional(),
-    experimentalNewWorktreeCardStyle: z.boolean().optional(),
-    agentStatusHooksEnabled: z.boolean().optional(),
-    defaultRepoSelection: z.array(z.string()).nullable().optional(),
-    defaultLinearTeamSelection: z.array(z.string()).nullable().optional(),
-    compactWorktreeCards: z.boolean().optional(),
-    minimaxGroupId: z.string().optional(),
-    minimaxUsageModels: z.string().optional(),
-    githubProjects: GitHubProjectSettings.optional(),
-    prBotAuthorOverrides: z
-      .unknown()
-      .transform((value) => normalizePRBotAuthorOverrides(value))
-      .optional(),
-    backlogServerUrl: z.string().optional(),
-    backlogVisibleProjectIds: z.array(z.string()).optional(),
-    backlogAgentId: z.string().nullable().optional(),
-    backlogProjectTokenMeta: z
-      .record(z.string(), z.object({ hashPrefix: z.string() }).strict())
-      .optional()
-  })
-  .strict()
-  .default({})
+export { SettingsUpdate }
 
 const UiUpdateFields = z
   .object({
@@ -256,6 +180,7 @@ const UiUpdateFields = z
     lastUpdateCheckAt: z.number().finite().nullable().optional(),
     pendingUpdateNudgeId: NullableString.optional(),
     dismissedUpdateNudgeId: NullableString.optional(),
+    releaseChannelOverride: z.enum(['stable', 'rc', 'hourly']).nullable().optional(),
     notificationPermissionRequested: z.boolean().optional(),
     updateReassuranceSeen: z.boolean().optional(),
     osc52ClipboardDefaultOnNoticePending: z.boolean().optional(),

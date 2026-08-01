@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildBacklogWorkspaceSource,
+  buildJiraWorkspaceSource,
   buildLinearWorkspaceSource,
   buildWorkspaceSourceSelection,
   getWorkspaceSourceName,
@@ -53,6 +54,23 @@ describe('workspace source policy', () => {
       label: 'Wire backlog provider'
     })
     expect(shouldPreserveWorkspaceSourceOnRepoChange(backlog)).toBe(true)
+  })
+
+  it('persists a Jira title without repeating its separately stored identifier', () => {
+    expect(
+      buildJiraWorkspaceSource({
+        key: 'ORCA-123',
+        title: 'Fix Jira card details',
+        url: 'https://company.atlassian.net/browse/ORCA-123'
+      })
+    ).toEqual({
+      provider: 'jira',
+      type: 'issue',
+      number: 0,
+      title: 'Fix Jira card details',
+      url: 'https://company.atlassian.net/browse/ORCA-123',
+      jiraIdentifier: 'ORCA-123'
+    })
   })
 
   it('preserves global work-item sources across repo changes', () => {

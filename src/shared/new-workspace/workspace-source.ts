@@ -1,5 +1,5 @@
 import { getLinearOrganizationUrlKeyFromIssueUrl } from '../linear-links'
-import type { FolderWorkspaceLinkedTask, LinearIssue } from '../types'
+import type { JiraIssue, LinearIssue, WorkspaceLinkedItem } from '../types'
 import {
   getLinkedWorkItemSuggestedName,
   getLinkedWorkItemWorkspaceName,
@@ -7,9 +7,9 @@ import {
 } from '../workspace-name'
 import { isWorkItemLookupText } from './work-item-lookup-text'
 
-export type WorkspaceSourceProvider = FolderWorkspaceLinkedTask['provider']
+export type WorkspaceSourceProvider = WorkspaceLinkedItem['provider']
 
-export type WorkspaceSourceLinkedItem = FolderWorkspaceLinkedTask & {
+export type WorkspaceSourceLinkedItem = WorkspaceLinkedItem & {
   linearWorkspaceId?: string
   linearOrganizationUrlKey?: string
   linearBranchName?: string
@@ -167,6 +167,19 @@ export function buildBacklogWorkspaceSource(task: {
     url: task.url,
     backlogTaskId: task.id,
     backlogProjectId: task.projectId
+  }
+}
+
+export function buildJiraWorkspaceSource(
+  issue: Pick<JiraIssue, 'key' | 'title' | 'url'>
+): JiraWorkspaceSource {
+  return {
+    provider: 'jira',
+    type: 'issue',
+    number: 0,
+    title: issue.title,
+    url: issue.url,
+    jiraIdentifier: issue.key
   }
 }
 

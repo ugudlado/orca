@@ -2,11 +2,13 @@ import type {
   BaseRefSearchResult,
   GitHubWorkItem,
   GitLabWorkItem,
+  JiraIssue,
   LinearCollectionResult,
   LinearIssue
 } from '../types'
 import type { BacklogTask } from '../backlog-types'
 import { isClipboardTextByteLengthOverLimit } from '../clipboard-text'
+import { JIRA_ISSUE_KEY_PATTERN, parseJiraIssueUrl } from '../jira-issue-url'
 
 export type SmartNameMode =
   | 'smart'
@@ -14,6 +16,7 @@ export type SmartNameMode =
   | 'gitlab'
   | 'branches'
   | 'linear'
+  | 'jira'
   | 'backlog'
   | 'text'
 
@@ -26,6 +29,7 @@ export type SmartWorkspaceSourceRow =
   | { kind: 'gitlab'; value: string; item: GitLabWorkItem }
   | { kind: 'branch'; value: string; refName: string; localBranchName: string }
   | { kind: 'linear'; value: string; issue: LinearIssue }
+  | { kind: 'jira'; value: string; issue: JiraIssue }
   | { kind: 'backlog'; value: string; task: BacklogTask }
 
 type LinearIssueSourceInput = LinearIssue[] | LinearCollectionResult<LinearIssue> | null | undefined
@@ -36,6 +40,7 @@ const EMPTY_HINT_BY_MODE: Record<SmartNameMode, string> = {
   gitlab: 'Start typing to search GitLab MRs and issues.',
   branches: 'No matching branches.',
   linear: 'Start typing to search Linear issues.',
+  jira: 'Start typing to search Jira issues, or paste an issue URL.',
   backlog: 'Start typing to search Backlog tasks.',
   text: ''
 }
@@ -49,6 +54,26 @@ export function isSmartWorkspaceSourceQueryWithinLimit(
   maxBytes = SMART_WORKSPACE_SOURCE_QUERY_MAX_BYTES
 ): boolean {
   return !isClipboardTextByteLengthOverLimit(query, maxBytes)
+}
+
+export function buildJiraIssueSearchJql(query: string): string | null {
+  const trimmed = query.trim()
+  if (!trimmed || !isSmartWorkspaceSourceQueryWithinLimit(trimmed)) {
+    return null
+  }
+  if (JIRA_ISSUE_KEY_PATTERN.test(trimmed)) {
+    return `key = "${trimmed.toUpperCase()}"`
+  }
+  const escaped = trimmed.replaceAll('\\', '\\\\').replaceAll('"', '\\"')
+  return `text ~ "${escaped}*"`
+}
+
+export function isBlockingJiraUrlIntent(mode: SmartNameMode, value: string): boolean {
+  return (mode === 'smart' || mode === 'jira') && parseJiraIssueUrl(value) !== null
+}
+
+function toJiraSourceRow(issue: JiraIssue): SmartWorkspaceSourceRow {
+  return { kind: 'jira', value: `jira-${issue.siteId ?? ''}-${issue.key}`, issue }
 }
 
 export function getBranchSearchRequest({
@@ -85,6 +110,29 @@ export function getBranchSearchRequest({
   return { repoId: selectedRepoId, query: trimmedQuery, limit }
 }
 
+/**
+ * Why: provider arrays lag the live input (200ms debounce). Keep them while the
+ * user is still typing, but hide immediately when the field is cleared so prior
+ * non-empty results cannot stay selectable until debounce catches up.
+ */
+export function getVisibleHeldProviderResults<T>({
+  items,
+  value,
+  debouncedQuery
+}: {
+  items: readonly T[]
+  value: string
+  debouncedQuery: string
+}): T[] {
+  if (!isSmartWorkspaceSourceQueryWithinLimit(value)) {
+    return []
+  }
+  if (value.trim() === '' && debouncedQuery.trim() !== '') {
+    return []
+  }
+  return items.slice()
+}
+
 export function getVisibleBranchResults({
   branches,
   mode,
@@ -103,14 +151,49 @@ export function getVisibleBranchResults({
   if (!isSmartWorkspaceSourceQueryWithinLimit(value)) {
     return []
   }
-  const currentQuery = value.trim()
   if (mode !== 'branches' && mode !== 'smart') {
     return []
   }
-  if (!selectedRepoId || resultRepoId !== selectedRepoId || resultQuery !== currentQuery) {
+  if (!selectedRepoId || resultRepoId !== selectedRepoId || resultQuery === null) {
+    return []
+  }
+  const currentQuery = value.trim()
+  // Why: hold the last settled list while the user extends/trims the query so the
+  // dropdown does not blank between debounced keystrokes. Drop the hold when the
+  // query diverges (e.g. "feat" → "bug") so unrelated rows do not linger.
+  if (currentQuery === '') {
+    return resultQuery === '' ? branches : []
+  }
+  if (!shouldHoldSourceResultsForQuery({ resultQuery, value: currentQuery })) {
     return []
   }
   return branches
+}
+
+/** Max |live − settled| length while still treating a prefix as "still typing". */
+const SOURCE_RESULT_HOLD_MAX_DELTA = 4
+
+/**
+ * Why: prefix-only hold lets a settled "f" stick under "fix-unrelated-…" for the
+ * whole next debounce. Cap the length delta so hold covers fast typing, not long
+ * continuations of a short settled query.
+ */
+export function shouldHoldSourceResultsForQuery({
+  resultQuery,
+  value
+}: {
+  resultQuery: string
+  value: string
+}): boolean {
+  const currentQueryKey = value.trim().toLowerCase()
+  const resultQueryKey = resultQuery.trim().toLowerCase()
+  if (resultQueryKey === currentQueryKey) {
+    return true
+  }
+  if (!currentQueryKey.startsWith(resultQueryKey) && !resultQueryKey.startsWith(currentQueryKey)) {
+    return false
+  }
+  return Math.abs(currentQueryKey.length - resultQueryKey.length) <= SOURCE_RESULT_HOLD_MAX_DELTA
 }
 
 export function buildSmartWorkspaceSourceRows({
@@ -118,6 +201,9 @@ export function buildSmartWorkspaceSourceRows({
   githubItems,
   gitlabAvailable,
   gitlabItems,
+  jiraIntent = false,
+  jiraIssue,
+  jiraIssues = [],
   linearAvailable,
   linearIssues,
   backlogAvailable,
@@ -130,6 +216,9 @@ export function buildSmartWorkspaceSourceRows({
   githubItems: GitHubWorkItem[]
   gitlabAvailable: boolean
   gitlabItems: GitLabWorkItem[]
+  jiraIntent?: boolean
+  jiraIssue?: JiraIssue | null
+  jiraIssues?: JiraIssue[]
   linearAvailable: boolean
   linearIssues: LinearIssueSourceInput
   backlogAvailable: boolean
@@ -138,13 +227,18 @@ export function buildSmartWorkspaceSourceRows({
   resultLimit: number
   value: string
 }): SmartWorkspaceSourceRow[] {
+  // Why: a pasted issue URL resolves to exactly one issue — every other source is noise.
+  if (jiraIntent) {
+    return jiraIssue ? [toJiraSourceRow(jiraIssue)] : []
+  }
   if (!isSmartWorkspaceSourceQueryWithinLimit(value)) {
     return []
   }
   const trimmed = value.trim()
   const nextRows: SmartWorkspaceSourceRow[] = []
   if (trimmed && mode === 'smart') {
-    nextRows.push({ kind: 'use-name', value: `use-name-${trimmed}`, name: trimmed })
+    // Why: stable cmdk value — embedding the query remounted the row every keystroke.
+    nextRows.push({ kind: 'use-name', value: 'use-name', name: trimmed })
   }
   if (mode === 'text') {
     return nextRows
@@ -173,7 +267,7 @@ export function buildSmartWorkspaceSourceRows({
       (branch) => branch.refName === trimmed || branch.localBranchName === trimmed
     )
     if (trimmed && mode === 'branches' && !branchExactMatch) {
-      nextRows.push({ kind: 'create-branch', value: `create-branch-${trimmed}`, name: trimmed })
+      nextRows.push({ kind: 'create-branch', value: 'create-branch', name: trimmed })
     }
     nextRows.push(
       ...branches.map((branch) => ({
@@ -199,6 +293,9 @@ export function buildSmartWorkspaceSourceRows({
         issue
       }))
     )
+  }
+  if (mode === 'smart' || mode === 'jira') {
+    nextRows.push(...jiraIssues.map(toJiraSourceRow))
   }
   if (backlogAvailable && (mode === 'smart' || mode === 'backlog')) {
     nextRows.push(

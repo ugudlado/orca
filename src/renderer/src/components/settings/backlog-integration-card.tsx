@@ -208,7 +208,7 @@ export function BacklogIntegrationCard(): React.JSX.Element {
                   )}
                 </p>
               ) : null}
-              <div className="max-h-48 space-y-2 overflow-y-auto rounded-md border border-border/60 p-2">
+              <div className="max-h-48 space-y-2 overflow-y-auto rounded-md border border-border/60 p-2 scrollbar-sleek">
                 {projects.map((project) => {
                   const id = projectKey(project)
                   const checked = visibleProjectIds.includes(id)

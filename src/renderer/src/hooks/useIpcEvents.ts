@@ -31,7 +31,11 @@ import type {
 } from '../../../shared/types'
 import type { RateLimitState } from '../../../shared/rate-limit-types'
 import type { DirectSshAuthority, SshConnectionState } from '../../../shared/ssh-types'
-import { toSshExecutionHostId } from '../../../shared/execution-host'
+import {
+  toRuntimeExecutionHostId,
+  toSshExecutionHostId,
+  type ExecutionHostId
+} from '../../../shared/execution-host'
 import { isWslHookRelayConnectionId } from '../../../shared/wsl-hook-relay-contract'
 import type {
   RuntimeBrowserDriverState,
@@ -89,12 +93,18 @@ import { attachMobileMarkdownBridge } from '@/runtime/mobile-markdown-bridge'
 import { closeMobileSessionTabInStore } from '@/runtime/mobile-session-tab-close'
 import { createWorktreeChangeRefreshQueue } from './worktree-change-refresh-queue'
 import { subscribeRuntimeClientEvents } from '@/runtime/runtime-client-events'
+import { applyNativeChatLaunchDraftResolved } from '@/runtime/native-chat-launch-draft-runtime-resolution'
+import { toRemoteRuntimePtyId } from '@/runtime/runtime-terminal-stream'
+import { dispatchTerminalSideEffectBatch } from '@/components/terminal-pane/terminal-side-effect-facts-handler'
 import { subscribeToUnpairedDeviceAuthNotification } from './unpaired-device-auth-notification'
 import {
   applyRuntimeEnvironmentSshStateChanged,
   hydrateRuntimeEnvironmentSshState
 } from '@/runtime/runtime-environment-ssh-state'
-import { createRuntimeProjectRefreshScheduler } from './runtime-project-refresh-scheduler'
+import {
+  createRuntimeProjectRefreshScheduler,
+  refreshRuntimeProjectWorktrees
+} from './runtime-project-refresh-scheduler'
 import { createRuntimeClientEventsSync } from './runtime-client-events-sync'
 import { detectLanguage } from '@/lib/language-detect'
 import { makePaneKey, parsePaneKey } from '../../../shared/stable-pane-id'
@@ -182,7 +192,6 @@ function getShortcutPlatform(): NodeJS.Platform {
 }
 
 const BROWSER_AUTOMATION_BOOTSTRAP_LEASE_MS = 10_000
-const RUNTIME_PROJECT_REFRESH_CONCURRENCY = 5
 const browserAutomationBootstrapLeaseByPageId = new Map<string, { token: string; timer: number }>()
 
 function resolveTerminalPresentation(data: {
@@ -586,36 +595,6 @@ export function getRuntimeProjectRefreshEnvironmentIds(args: {
   ]
 }
 
-async function refreshRuntimeProjectWorktrees(repos: readonly { id: string }[]): Promise<void> {
-  let nextIndex = 0
-  const failures: { repoId: string; error: unknown }[] = []
-  const workerCount = Math.min(RUNTIME_PROJECT_REFRESH_CONCURRENCY, repos.length)
-
-  // Why: one coalesced repo event can represent many repos; bound the probes so idle refresh never floods the renderer.
-  await Promise.all(
-    Array.from({ length: workerCount }, async () => {
-      while (nextIndex < repos.length) {
-        const index = nextIndex
-        nextIndex += 1
-        const repoId = repos[index].id
-        try {
-          await useAppStore.getState().fetchWorktrees(repoId)
-        } catch (error) {
-          failures.push({ repoId, error })
-        }
-      }
-    })
-  )
-  if (failures.length > 0) {
-    throw new AggregateError(
-      failures.map((failure) => failure.error),
-      `Failed to refresh ${failures.length} runtime project worktree(s): ${failures
-        .map((failure) => failure.repoId)
-        .join(', ')}`
-    )
-  }
-}
-
 function getWorktreeRuntimeEnvironmentId(worktreeId: string | null | undefined): string | null {
   return getRuntimeEnvironmentIdForWorktree(useAppStore.getState(), worktreeId)
 }
@@ -786,7 +765,7 @@ export function useIpcEvents(): void {
     const handleWorktreesChanged = async (
       repoId: string,
       renamed?: { oldWorktreeId: string; newWorktreeId: string },
-      options?: { forceLocalOwner?: boolean }
+      options?: { forceLocalOwner?: boolean; executionHostId?: ExecutionHostId }
     ): Promise<void> => {
       const localRefreshStartedWithRuntime =
         options?.forceLocalOwner === true && isRuntimeEnvironmentActive()
@@ -807,11 +786,21 @@ export function useIpcEvents(): void {
         getVisibleWorktreeIdsForRepo(state, repoId)
       await state.fetchWorktrees(
         repoId,
-        options?.forceLocalOwner ? { forceLocalOwner: true } : undefined
+        options?.forceLocalOwner
+          ? { forceLocalOwner: true }
+          : options?.executionHostId
+            ? { executionHostId: options.executionHostId }
+            : undefined
       )
       await useAppStore
         .getState()
-        .fetchWorktreeLineage(options?.forceLocalOwner ? { forceLocalOwner: true } : undefined)
+        .fetchWorktreeLineage(
+          options?.forceLocalOwner
+            ? { forceLocalOwner: true }
+            : options?.executionHostId
+              ? { executionHostId: options.executionHostId }
+              : undefined
+        )
       // Why: an id change unmounts the active pane; re-activate so the tab reconciles, else it vanishes until re-select.
       if (renamedWasActive && renamed) {
         useAppStore.getState().setActiveWorktree(renamed.newWorktreeId)
@@ -907,8 +896,12 @@ export function useIpcEvents(): void {
         // Why: refresh the env's SSH bucket on (re)connect so a pre-drop snapshot can't keep a reconnect overlay stale.
         void hydrateRuntimeEnvironmentSshState(environmentId, { force: true }).catch(() => {})
         const repos = await useAppStore.getState().fetchRuntimeEnvironmentRepos(environmentId)
-        await refreshRuntimeProjectWorktrees(repos)
-        await useAppStore.getState().fetchWorktreeLineage()
+        await refreshRuntimeProjectWorktrees(environmentId, repos, (repoId, options) =>
+          useAppStore.getState().fetchWorktrees(repoId, options)
+        )
+        await useAppStore.getState().fetchWorktreeLineage({
+          executionHostId: toRuntimeExecutionHostId(environmentId)
+        })
       },
       onError: (error) => {
         console.error('Failed to refresh runtime projects:', error)
@@ -928,6 +921,17 @@ export function useIpcEvents(): void {
         applyHostWorktreeTerminalSleepState(environmentId, event)
         return
       }
+      if (event.type === 'terminalSideEffects') {
+        dispatchTerminalSideEffectBatch({
+          ...event.batch,
+          ptyId: toRemoteRuntimePtyId(event.batch.ptyId, environmentId)
+        })
+        return
+      }
+      if (event.type === 'nativeChatLaunchDraftResolved') {
+        applyNativeChatLaunchDraftResolved(useAppStore.getState(), event)
+        return
+      }
       if (event.type === 'reposChanged') {
         runtimeProjectRefreshScheduler.request(environmentId)
         return
@@ -943,7 +947,10 @@ export function useIpcEvents(): void {
       }
       if (event.type === 'worktreesChanged') {
         void ensureRuntimeEventRepoKnown(environmentId, event.repoId).then(() =>
-          worktreeChangeRefreshQueue.enqueue({ repoId: event.repoId })
+          worktreeChangeRefreshQueue.enqueue({
+            repoId: event.repoId,
+            executionHostId: toRuntimeExecutionHostId(environmentId)
+          })
         )
         return
       }
@@ -1408,6 +1415,7 @@ export function useIpcEvents(): void {
           activate,
           focus,
           presentation,
+          surfaceOwner,
           tabId,
           leafId,
           splitFromLeafId,
@@ -1422,7 +1430,8 @@ export function useIpcEvents(): void {
               focus
             })
             const shouldActivate = terminalPresentation === 'focused'
-            const shouldSurfaceOwner = terminalPresentation !== 'background'
+            const shouldSurfaceOwner =
+              terminalPresentation !== 'background' && surfaceOwner !== false
             if (shouldActivate) {
               activateTerminalInitiatedWorktree(store, worktreeId)
             }
@@ -1583,11 +1592,12 @@ export function useIpcEvents(): void {
               requestBackgroundTerminalWorktreeMount({ worktreeId, tabIds: [tab.id] })
             }
             if (requestId) {
+              // Why: attest the actual binding; recovery callers compare it with their expected identity.
               const identity =
                 ptyId && tabId && leafId
                   ? verifyTerminalRevealIdentity(useAppStore.getState(), {
                       worktreeId,
-                      tabId,
+                      tabId: tab.id,
                       leafId,
                       ptyId
                     })
@@ -1673,7 +1683,8 @@ export function useIpcEvents(): void {
           }
           const terminalPresentation = resolveTerminalPresentation(data)
           const shouldActivate = terminalPresentation === 'focused'
-          const shouldSurfaceOwner = terminalPresentation !== 'background'
+          const shouldSurfaceOwner =
+            terminalPresentation !== 'background' && data.surfaceOwner !== false
           if (shouldActivate) {
             activateTerminalInitiatedWorktree(store, worktreeId)
           }
@@ -2632,6 +2643,37 @@ export function useIpcEvents(): void {
     }
 
     const sshStateWatermarkByTargetId = new Map<string, number>()
+    const pendingPortHydrationByTargetId = new Map<
+      string,
+      { receivedForwardPush: boolean; receivedDetectedPush: boolean }
+    >()
+    const hydrateSshPorts = (targetId: string, authority: DirectSshAuthority): void => {
+      const pendingPortHydration = {
+        receivedForwardPush: false,
+        receivedDetectedPush: false
+      }
+      pendingPortHydrationByTargetId.set(targetId, pendingPortHydration)
+      const isHydrationAuthorityCurrent = (): boolean =>
+        !directSshEffectStopped &&
+        directSshAuthoritiesEqual(currentDirectSshAuthority(targetId), authority)
+      const forwardHydration = window.api.ssh.listPortForwards({ targetId }).then((forwards) => {
+        // Why: if the session disconnected while awaiting the snapshot, applying it would resurrect a dead session's ports.
+        if (isHydrationAuthorityCurrent() && !pendingPortHydration.receivedForwardPush) {
+          useAppStore.getState().setPortForwards(targetId, forwards)
+        }
+      })
+      const detectedHydration = window.api.ssh.listDetectedPorts({ targetId }).then((detected) => {
+        if (isHydrationAuthorityCurrent() && !pendingPortHydration.receivedDetectedPush) {
+          useAppStore.getState().setDetectedPorts(targetId, detected)
+        }
+      })
+      // Why: one failed or stalled port stream must not block the other stream or later targets.
+      void Promise.allSettled([forwardHydration, detectedHydration]).then(() => {
+        if (pendingPortHydrationByTargetId.get(targetId) === pendingPortHydration) {
+          pendingPortHydrationByTargetId.delete(targetId)
+        }
+      })
+    }
     let applySshConnectionStateChange!: (
       targetId: string,
       state: SshConnectionState,
@@ -2669,23 +2711,6 @@ export function useIpcEvents(): void {
               state as SshConnectionState,
               'initial-hydration'
             )
-            // Why: ports arrive only via push events; on reattach to a live session fetch snapshots or the Ports panel shows empty.
-            if ((state as SshConnectionState).status === 'connected') {
-              const authority = currentDirectSshAuthority(target.id)
-              const [forwards, detected] = await Promise.all([
-                window.api.ssh.listPortForwards({ targetId: target.id }),
-                window.api.ssh.listDetectedPorts({ targetId: target.id })
-              ])
-              // Why: if the session disconnected while awaiting the snapshot, applying it would resurrect a dead session's ports.
-              if (
-                !directSshEffectStopped &&
-                authority &&
-                directSshAuthoritiesEqual(currentDirectSshAuthority(target.id), authority)
-              ) {
-                useAppStore.getState().setPortForwards(target.id, forwards)
-                useAppStore.getState().setDetectedPorts(target.id, detected)
-              }
-            }
           }
         }
       } catch {
@@ -2707,12 +2732,20 @@ export function useIpcEvents(): void {
 
     unsubs.push(
       window.api.ssh.onPortForwardsChanged(({ targetId, forwards }) => {
+        const pendingPortHydration = pendingPortHydrationByTargetId.get(targetId)
+        if (pendingPortHydration) {
+          pendingPortHydration.receivedForwardPush = true
+        }
         useAppStore.getState().setPortForwards(targetId, forwards)
       })
     )
 
     unsubs.push(
       window.api.ssh.onDetectedPortsChanged(({ targetId, ports }) => {
+        const pendingPortHydration = pendingPortHydrationByTargetId.get(targetId)
+        if (pendingPortHydration) {
+          pendingPortHydration.receivedDetectedPush = true
+        }
         useAppStore.getState().setDetectedPorts(targetId, ports)
       })
     )
@@ -2737,7 +2770,7 @@ export function useIpcEvents(): void {
             latest?.targetId !== targetId ||
             !latest?.providerEpoch ||
             latest.connectionGeneration === undefined ||
-            sshStateWatermarkByTargetId.get(targetId) !== watermark
+            (sshStateWatermarkByTargetId.get(targetId) ?? 0) !== watermark
           ) {
             return
           }
@@ -2841,6 +2874,10 @@ export function useIpcEvents(): void {
         },
         { authority, previousAuthority, origin }
       )
+      // Why: initial connected state can be partial; hydrate only after reconciliation yields a complete authority.
+      if (origin === 'initial-hydration') {
+        hydrateSshPorts(targetId, authority)
+      }
     }
 
     let sshTargetStateEventId = 0
@@ -3480,6 +3517,18 @@ export function useIpcEvents(): void {
         setDriverForPty(event.ptyId, event.driver)
       })
     )
+
+    const unsubscribeLaunchDraftResolution = window.api.runtime.onNativeChatLaunchDraftResolved?.(
+      (event) => {
+        applyNativeChatLaunchDraftResolved(useAppStore.getState(), {
+          type: 'nativeChatLaunchDraftResolved',
+          ...event
+        })
+      }
+    )
+    if (unsubscribeLaunchDraftResolution) {
+      unsubs.push(unsubscribeLaunchDraftResolution)
+    }
 
     unsubs.push(
       window.api.runtime.onBrowserDriverChanged((event) => {

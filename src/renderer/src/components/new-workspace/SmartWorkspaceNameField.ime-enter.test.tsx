@@ -10,18 +10,24 @@ vi.mock('@/store', () => {
     repos: [],
     addRepo: vi.fn(),
     checkLinearConnection: vi.fn(),
+    checkBacklogConnection: vi.fn(),
     fetchWorkItems: vi.fn(),
     fetchWorkItemsAcrossRepos: vi.fn(),
     getCachedWorkItems: vi.fn(() => null),
     linearStatus: { connected: false },
     linearStatusChecked: false,
     listLinearIssues: vi.fn(),
+    listBacklogTasks: vi.fn(async () => []),
+    listBacklogProjects: vi.fn(async () => []),
     preflightStatus: null,
     preflightStatusChecked: false,
     preflightStatusContextKey: null,
     refreshPreflightStatus: vi.fn(),
+    searchJiraIssues: vi.fn(async () => []),
     searchLinearIssues: vi.fn(),
-    settings: null
+    settings: null,
+    backlogStatus: { connected: false },
+    backlogStatusChecked: false
   }
   const useAppStore = (selector: (s: typeof state) => unknown): unknown => selector(state)
   useAppStore.getState = () => state

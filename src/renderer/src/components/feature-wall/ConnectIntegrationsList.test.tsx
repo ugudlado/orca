@@ -29,6 +29,13 @@ type StoreState = {
   checkJiraConnection: () => Promise<void>
   testJiraConnection: () => Promise<{ ok: boolean; error?: string }>
   disconnectJira: () => Promise<void>
+  backlogStatus: { connected: boolean; viewer: unknown; serverUrl: string | null }
+  backlogStatusChecked: boolean
+  backlogStatusContextKey: string | null
+  checkBacklogConnection: () => Promise<void>
+  disconnectBacklog: () => Promise<void>
+  listBacklogProjects: () => Promise<unknown[]>
+  updateSettings: (updates: unknown) => void
 }
 
 const { storeState } = vi.hoisted(() => ({
@@ -107,7 +114,14 @@ function installStore(preflightStatus: PreflightStatus): void {
     jiraStatusContextKey: providerContextKey,
     checkJiraConnection: vi.fn(async () => {}),
     testJiraConnection: vi.fn(async () => ({ ok: true })),
-    disconnectJira: vi.fn(async () => {})
+    disconnectJira: vi.fn(async () => {}),
+    backlogStatus: { connected: false, viewer: null, serverUrl: null },
+    backlogStatusChecked: true,
+    backlogStatusContextKey: providerContextKey,
+    checkBacklogConnection: vi.fn(async () => {}),
+    disconnectBacklog: vi.fn(async () => {}),
+    listBacklogProjects: vi.fn(async () => []),
+    updateSettings: vi.fn()
   }
 }
 

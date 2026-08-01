@@ -35,20 +35,34 @@ describe('SmartWorkspaceNameField repo-backed source boundaries', () => {
       'const availableModes = getSmartWorkspaceNameModes().filter',
       'const mrStateFilters = getMrStateFilters()'
     )
-    expect(availableModesSection).toContain('return !repoBackedSourcesDisabled')
-    expect(availableModesSection).toContain('return gitlabSourceAvailable')
-    expect(availableModesSection).toContain('branchesEnabled && !repoBackedSourcesDisabled')
+    // Why: only Smart + Workflow remain as tabs; per-provider tabs (and their
+    // repoBackedSourcesDisabled/gitlabSourceAvailable/jiraSourceConnected gates)
+    // were removed — provider results now surface together under Smart.
+    expect(availableModesSection).toContain("return item.id === 'smart'")
     expect(FIELD_SOURCE).toContain('repoBackedSourcesDisabled')
     expect(FIELD_SOURCE).toContain('!textOnly &&\n    gitlabSourceAvailable')
+
+    const jiraLookupSection = sourceBetween(
+      FIELD_SOURCE,
+      'const jiraSource = useJiraUrlSource({',
+      'const jiraStatusId'
+    )
+    expect(jiraLookupSection).toContain("mode === 'smart' || mode === 'jira'")
+    expect(jiraLookupSection).toContain('sourceContext: jiraSourceContext')
+    expect(FIELD_SOURCE).toContain('const shouldQueryJira =')
+    expect(FIELD_SOURCE).toContain('searchJiraIssues(jiraSearchJql, RESULT_LIMIT')
 
     const placeholderSection = sourceBetween(
       FIELD_SOURCE,
       'const smartPlaceholder = repoBackedSourcesDisabled',
       'return ('
     )
-    expect(placeholderSection).toContain('Type a name or Linear URL')
+    expect(placeholderSection).toContain('Type a name, Linear URL, or Jira URL')
     expect(placeholderSection).toContain('Type a workspace name')
-    expect(placeholderSection).toContain('Type a name, #1234, branch, GitHub/GitLab or Linear URL')
+    expect(placeholderSection).toContain(
+      'Type a name, #1234, branch, GitHub/GitLab, Linear, or Jira URL'
+    )
+    expect(placeholderSection).toContain('Search Jira issues or paste an issue URL')
     expect(placeholderSection).toContain('Search GitLab MRs and issues')
   })
 

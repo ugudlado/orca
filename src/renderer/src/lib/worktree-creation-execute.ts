@@ -21,9 +21,10 @@ import {
 import type { CreateWorktreeResult } from '../../../shared/types'
 import type { WorktreeCreationRequest } from '@/lib/pending-worktree-creation'
 import { createBrowserUuid } from '@/lib/browser-uuid'
-import { seedNativeChatAppliedSessionOptions } from '@/components/native-chat/native-chat-session-option-cache'
 import { buildBacklogStartWorkTaskUpdate } from '../../../shared/backlog-start-work-update'
 import { resolveBacklogHostHostname } from '@/lib/backlog-launch-env'
+import { seedAgentTabStateAfterWorktreeCreate } from '@/lib/worktree-creation-agent-seeds'
+import { resolveBackendDraftStartup } from '@/lib/worktree-draft-startup-view-mode'
 
 // Why: mirrors the startup-opt the composer used to build inline. The renderer
 // only seeds the first terminal when the backend did not already spawn it.
@@ -42,6 +43,9 @@ function buildStartupOpt(
     ...(plan.launchToken ? { launchToken: plan.launchToken } : {}),
     ...(request.agent ? { launchAgent: request.agent } : {}),
     ...(plan.draftPrompt ? { draftPrompt: plan.draftPrompt } : {}),
+    // Why: view-mode only. An argv-prefill plan sets no draftPrompt, so this is
+    // the sole signal that this launch starts with unsent context in the TUI.
+    ...(request.launchDraftPrompt ? { launchDraftText: request.launchDraftPrompt } : {}),
     ...(plan.startupCommandDelivery ? { startupCommandDelivery: plan.startupCommandDelivery } : {}),
     // Why: command-code shows its prompt in the tab status before the first
     // hook fires, so the prompt is threaded through here.
@@ -97,6 +101,7 @@ export async function executeWorktreeCreation(
 
   let result: CreateWorktreeResult
   try {
+    const backendStartup = resolveBackendDraftStartup(preparedRequest)
     result = await useAppStore
       .getState()
       .createWorktree(
@@ -116,7 +121,7 @@ export async function executeWorktreeCreation(
         preparedRequest.workspaceStatus,
         preparedRequest.linkedGitLabMR,
         preparedRequest.linkedGitLabIssue,
-        preparedRequest.startup,
+        backendStartup,
         preparedRequest.pendingFirstAgentMessageRename,
         creationId,
         preparedRequest.linkedLinearIssueWorkspaceId,
@@ -124,7 +129,15 @@ export async function executeWorktreeCreation(
         preparedRequest.linkedBitbucketPR,
         preparedRequest.linkedAzureDevOpsPR,
         preparedRequest.linkedGiteaPR,
-        preparedRequest.compareBaseRef
+        preparedRequest.compareBaseRef,
+        {
+          ...(preparedRequest.linkedWorkItem !== undefined
+            ? { linkedWorkItem: preparedRequest.linkedWorkItem }
+            : {}),
+          ...(preparedRequest.linkedTaskSourceContext !== undefined
+            ? { linkedTaskSourceContext: preparedRequest.linkedTaskSourceContext }
+            : {})
+        }
       )
   } catch (error) {
     // Why: a missing entry means the user cancelled mid-flight — abandon
@@ -214,16 +227,13 @@ export async function executeWorktreeCreation(
   // Why: clearing synchronously right after activation lets React commit the
   // panel→terminal swap in one frame — no two-row flicker, no empty-terminal flash.
   useAppStore.getState().removePendingWorktreeCreation(creationId, { cleanupVm: false })
-  if (preparedRequest.startupPlan && preparedRequest.agent) {
-    const optionScopeKey = primaryTabId ?? result.startupTerminal?.tabId
-    if (optionScopeKey) {
-      seedNativeChatAppliedSessionOptions(
-        optionScopeKey,
-        preparedRequest.agent,
-        preparedRequest.startupPlan.sessionOptions
-      )
-    }
-  }
+  seedAgentTabStateAfterWorktreeCreate({
+    request: preparedRequest,
+    worktreeId: worktree.id,
+    primaryTabId,
+    startupTerminalTabId: result.startupTerminal?.tabId,
+    backendSpawned
+  })
   if (preparedRequest.startupPlan && !backendSpawned) {
     void ensureAgentStartupInTerminal({
       worktreeId: worktree.id,

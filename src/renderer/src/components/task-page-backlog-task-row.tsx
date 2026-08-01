@@ -116,7 +116,9 @@ export function TaskPageBacklogTaskRow({
   const idPill = (
     <span
       className="inline-flex max-w-full items-center rounded-md border border-border/50 bg-muted/40 px-1.5 py-0.5 text-muted-foreground"
-      aria-label={`Task ${idLabel}`}
+      aria-label={translate('auto.components.TaskPage.taskIdPillLabel', 'Task {{idLabel}}', {
+        idLabel
+      })}
     >
       <span className="truncate font-mono text-[11px] font-normal">{idLabel}</span>
     </span>
@@ -217,7 +219,11 @@ export function TaskPageBacklogTaskRow({
                 type="button"
                 onClick={(event) => event.stopPropagation()}
                 className={backlogStatusChipClassName(task.status, 'cursor-pointer')}
-                aria-label={`Change status (currently ${task.status || 'none'})`}
+                aria-label={translate(
+                  'auto.components.TaskPage.taskStatusChangeLabel',
+                  'Change status (currently {{status}})',
+                  { status: task.status || translate('auto.components.TaskPage.taskStatusNone', 'none') }
+                )}
               >
                 <span className="truncate">{task.status || '—'}</span>
               </button>
